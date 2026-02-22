@@ -165,6 +165,7 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                             enemy_breakdowns: segment_tracker.build_enemy_breakdowns(
                                 &key_boss_encounters.iter().map(|b| b.name.clone()).collect::<Vec<_>>()
                             ),
+                            pulls: segment_tracker.build_pulls(segment_start_secs),
                         });
                     }
 
@@ -227,6 +228,7 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                             enemy_breakdowns: segment_tracker.build_enemy_breakdowns(
                                 &key_boss_encounters.iter().map(|b| b.name.clone()).collect::<Vec<_>>()
                             ),
+                            pulls: segment_tracker.build_pulls(segment_start_secs),
                         });
                     }
                     segment_tracker = EventTracker::new_with_context(&tracker);
@@ -298,6 +300,7 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                         deaths: segment_tracker.death_events.clone(),
                         buff_uptimes: segment_tracker.build_buff_uptimes(boss_seg_duration),
                         enemy_breakdowns: segment_tracker.build_enemy_breakdowns(&[boss_name.clone()]),
+                        pulls: Vec::new(),
                     });
                     segment_tracker = EventTracker::new_with_context(&tracker);
                     segment_start_secs = timestamp_secs;
@@ -424,6 +427,18 @@ struct EventTracker {
     time_bucketed_player_damage: HashMap<u32, HashMap<String, u64>>,
     /// Boss HP timeline: (elapsed_secs, hp_pct) sampled when boss takes damage
     boss_hp_timeline: Vec<(f64, f64)>,
+    /// Raw NPC damage events for pull detection: (timestamp_secs, enemy_name, damage, creature_type)
+    npc_damage_events: Vec<(f64, String, u64, String)>,
+    /// Player damage events with timestamps for per-pull player damage: (timestamp_secs, source_guid, amount)
+    player_damage_events: Vec<(f64, String, u64)>,
+    /// Player healing events with timestamps for per-pull player healing: (timestamp_secs, source_guid, amount)
+    player_healing_events: Vec<(f64, String, u64)>,
+    /// Per-ability damage events for per-pull ability breakdown: (ts, guid, spell_id, spell_name, spell_school, amount, target_name)
+    player_ability_events: Vec<(f64, String, u64, String, u32, u64, String)>,
+    /// Per-ability heal events for per-pull ability breakdown: (ts, guid, spell_id, spell_name, spell_school, amount, target_name)
+    player_heal_ability_events: Vec<(f64, String, u64, String, u32, u64, String)>,
+    /// Per-ability damage taken events: (ts, dest_guid, spell_id, spell_name, spell_school, amount, source_name)
+    player_damage_taken_events: Vec<(f64, String, u64, String, u32, u64, String)>,
 }
 
 impl EventTracker {
@@ -457,6 +472,12 @@ impl EventTracker {
             encounter_start_secs: 0.0,
             time_bucketed_player_damage: HashMap::new(),
             boss_hp_timeline: Vec::new(),
+            npc_damage_events: Vec::new(),
+            player_damage_events: Vec::new(),
+            player_healing_events: Vec::new(),
+            player_ability_events: Vec::new(),
+            player_heal_ability_events: Vec::new(),
+            player_damage_taken_events: Vec::new(),
         }
     }
 
@@ -578,6 +599,23 @@ impl EventTracker {
             let dps = if duration > 0.0 { total_damage as f64 / duration } else { 0.0 };
             let hps = if duration > 0.0 { total_healing as f64 / duration } else { 0.0 };
 
+            // Build damage taken abilities from events
+            let mut dt_map: HashMap<u64, (String, u32, u64, u32, HashMap<String, u64>)> = HashMap::new();
+            for (_, dest, spell_id, spell_name, school, amount, source) in &self.player_damage_taken_events {
+                if dest == guid {
+                    let entry = dt_map.entry(*spell_id).or_insert_with(|| (spell_name.clone(), *school, 0, 0, HashMap::new()));
+                    entry.2 += amount;
+                    entry.3 += 1;
+                    *entry.4.entry(source.clone()).or_default() += amount;
+                }
+            }
+            let mut damage_taken_abilities: Vec<AbilityBreakdown> = dt_map.into_iter().map(|(spell_id, (name, school, total, hits, sources))| {
+                let mut targets: Vec<TargetBreakdown> = sources.into_iter().map(|(sn, amt)| TargetBreakdown { target_name: sn, amount: amt }).collect();
+                targets.sort_by(|a, b| b.amount.cmp(&a.amount));
+                AbilityBreakdown { spell_id, spell_name: name, spell_school: school, total_amount: total, hit_count: hits, wowhead_url: wowhead_url(spell_id), targets }
+            }).collect();
+            damage_taken_abilities.sort_by(|a, b| b.total_amount.cmp(&a.total_amount));
+
             players.push(PlayerSummary {
                 guid: guid.clone(),
                 name,
@@ -591,6 +629,7 @@ impl EventTracker {
                 hps,
                 abilities: damage_abilities,
                 heal_abilities,
+                damage_taken_abilities,
             });
         }
         players.sort_by(|a, b| b.damage_done.cmp(&a.damage_done));
@@ -744,6 +783,185 @@ impl EventTracker {
         breakdowns
     }
 
+    /// Build individual pulls from NPC damage events by detecting combat gaps
+    fn build_pulls(&self, segment_start_secs: f64) -> Vec<TrashPull> {
+        if self.npc_damage_events.is_empty() {
+            return Vec::new();
+        }
+
+        const PULL_GAP_SECS: f64 = 4.0;
+
+        // First pass: detect pull time ranges and enemies
+        struct PullRange {
+            start: f64,
+            end: f64,
+            enemies: HashMap<String, (u64, String)>,
+        }
+
+        let mut ranges: Vec<PullRange> = Vec::new();
+        let mut current_start: f64 = self.npc_damage_events[0].0;
+        let mut current_end: f64 = current_start;
+        let mut current_enemies: HashMap<String, (u64, String)> = HashMap::new();
+
+        for (ts, name, dmg, ctype) in &self.npc_damage_events {
+            if *ts - current_end > PULL_GAP_SECS && !current_enemies.is_empty() {
+                ranges.push(PullRange { start: current_start, end: current_end, enemies: current_enemies });
+                current_start = *ts;
+                current_enemies = HashMap::new();
+            }
+            current_end = *ts;
+            let entry = current_enemies.entry(name.clone()).or_insert((0, ctype.clone()));
+            entry.0 += dmg;
+        }
+        if !current_enemies.is_empty() {
+            ranges.push(PullRange { start: current_start, end: current_end, enemies: current_enemies });
+        }
+
+        // Second pass: build per-pull player damage from player_damage_events
+        let mut pulls: Vec<TrashPull> = Vec::new();
+        for (pi, range) in ranges.iter().enumerate() {
+            let mut enemies: Vec<PullEnemy> = range.enemies.iter()
+                .map(|(name, (damage, mob_type))| PullEnemy {
+                    name: name.clone(), damage_taken: *damage, mob_type: mob_type.clone()
+                })
+                .collect();
+            enemies.sort_by(|a, b| b.damage_taken.cmp(&a.damage_taken));
+
+            // Sum player damage within this pull's time range
+            let mut player_damage: HashMap<String, u64> = HashMap::new();
+            for (ts, guid, amount) in &self.player_damage_events {
+                if *ts >= range.start && *ts <= range.end {
+                    *player_damage.entry(guid.clone()).or_default() += amount;
+                }
+            }
+
+            // Sum player healing within this pull's time range
+            let mut player_healing: HashMap<String, u64> = HashMap::new();
+            for (ts, guid, amount) in &self.player_healing_events {
+                if *ts >= range.start && *ts <= range.end {
+                    *player_healing.entry(guid.clone()).or_default() += amount;
+                }
+            }
+
+            // Collect all player GUIDs seen in damage or healing
+            let mut all_guids: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for guid in player_damage.keys() { all_guids.insert(guid.clone()); }
+            for guid in player_healing.keys() { all_guids.insert(guid.clone()); }
+
+            // Build per-pull ability breakdowns from ability events
+            // damage abilities: guid -> spell_id -> (spell_name, spell_school, total, hits, targets)
+            let mut pull_dmg_abilities: HashMap<String, HashMap<u64, (String, u32, u64, u32, HashMap<String, u64>)>> = HashMap::new();
+            for (ts, guid, spell_id, spell_name, school, amount, target) in &self.player_ability_events {
+                if *ts >= range.start && *ts <= range.end {
+                    let entry = pull_dmg_abilities.entry(guid.clone()).or_default()
+                        .entry(*spell_id).or_insert_with(|| (spell_name.clone(), *school, 0, 0, HashMap::new()));
+                    entry.2 += amount;
+                    entry.3 += 1;
+                    *entry.4.entry(target.clone()).or_default() += amount;
+                }
+            }
+            // heal abilities
+            let mut pull_heal_abilities: HashMap<String, HashMap<u64, (String, u32, u64, u32, HashMap<String, u64>)>> = HashMap::new();
+            for (ts, guid, spell_id, spell_name, school, amount, target) in &self.player_heal_ability_events {
+                if *ts >= range.start && *ts <= range.end {
+                    let entry = pull_heal_abilities.entry(guid.clone()).or_default()
+                        .entry(*spell_id).or_insert_with(|| (spell_name.clone(), *school, 0, 0, HashMap::new()));
+                    entry.2 += amount;
+                    entry.3 += 1;
+                    *entry.4.entry(target.clone()).or_default() += amount;
+                }
+            }
+
+            let pull_duration = (range.end - range.start).max(1.0);
+            let mut players: Vec<PlayerSummary> = all_guids.into_iter()
+                .map(|guid| {
+                    let name = self.player_names.get(&guid).cloned().unwrap_or_else(|| guid.clone());
+                    let (class_name, spec_name) = self.player_specs.get(&guid)
+                        .and_then(|id| spec_info(*id))
+                        .map(|(c, s, _)| (c.to_string(), s.to_string()))
+                        .unwrap_or_else(|| (String::new(), String::new()));
+                    let dmg = player_damage.get(&guid).copied().unwrap_or(0);
+                    let heal = player_healing.get(&guid).copied().unwrap_or(0);
+                    // Build damage abilities for this player in this pull
+                    let mut abilities: Vec<AbilityBreakdown> = pull_dmg_abilities.get(&guid)
+                        .map(|spells| spells.iter().map(|(spell_id, (name, school, total, hits, targets))| {
+                            let mut target_vec: Vec<TargetBreakdown> = targets.iter()
+                                .map(|(tn, amt)| TargetBreakdown { target_name: tn.clone(), amount: *amt })
+                                .collect();
+                            target_vec.sort_by(|a, b| b.amount.cmp(&a.amount));
+                            AbilityBreakdown {
+                                spell_id: *spell_id,
+                                spell_name: name.clone(),
+                                spell_school: *school,
+                                total_amount: *total,
+                                hit_count: *hits,
+                                wowhead_url: format!("https://www.wowhead.com/spell={}", spell_id),
+                                targets: target_vec,
+                            }
+                        }).collect())
+                        .unwrap_or_default();
+                    abilities.sort_by(|a, b| b.total_amount.cmp(&a.total_amount));
+                    // Build heal abilities
+                    let mut heal_abilities: Vec<AbilityBreakdown> = pull_heal_abilities.get(&guid)
+                        .map(|spells| spells.iter().map(|(spell_id, (name, school, total, hits, targets))| {
+                            let mut target_vec: Vec<TargetBreakdown> = targets.iter()
+                                .map(|(tn, amt)| TargetBreakdown { target_name: tn.clone(), amount: *amt })
+                                .collect();
+                            target_vec.sort_by(|a, b| b.amount.cmp(&a.amount));
+                            AbilityBreakdown {
+                                spell_id: *spell_id,
+                                spell_name: name.clone(),
+                                spell_school: *school,
+                                total_amount: *total,
+                                hit_count: *hits,
+                                wowhead_url: format!("https://www.wowhead.com/spell={}", spell_id),
+                                targets: target_vec,
+                            }
+                        }).collect())
+                        .unwrap_or_default();
+                    heal_abilities.sort_by(|a, b| b.total_amount.cmp(&a.total_amount));
+                    PlayerSummary {
+                        guid,
+                        name,
+                        class_name,
+                        spec_name,
+                        damage_done: dmg,
+                        healing_done: heal,
+                        damage_taken: 0,
+                        deaths: 0,
+                        dps: dmg as f64 / pull_duration,
+                        hps: heal as f64 / pull_duration,
+                        abilities,
+                        heal_abilities,
+                    }
+                })
+                .collect();
+            players.sort_by(|a, b| b.damage_done.cmp(&a.damage_done));
+
+            // Filter deaths within this pull's time range
+            let pull_deaths: Vec<DeathEvent> = self.death_events.iter()
+                .filter(|d| {
+                    // Parse death timestamp to seconds and check range
+                    // death_events have timestamp as String, compare using the offset
+                    // We'll use a simpler approach: check all deaths
+                    true // will be filtered in frontend by offset
+                })
+                .cloned()
+                .collect();
+
+            pulls.push(TrashPull {
+                pull_index: pi,
+                duration_secs: range.end - range.start,
+                start_time_offset: range.start - segment_start_secs,
+                enemies,
+                players,
+                deaths: pull_deaths,
+            });
+        }
+
+        pulls
+    }
+
     /// Build per-phase enemy breakdowns from ENCOUNTER_PHASE_CHANGE events
     fn build_phase_breakdowns(&self, enc_start_secs: f64, enc_end_secs: f64, boss_names: &[String]) -> Vec<PhaseBreakdown> {
         // Only build phases if we actually saw phase change events
@@ -856,7 +1074,7 @@ fn process_combat_event(
             let spell_school: u32 = fields.get(11).and_then(|s| parse_hex_or_dec(s)).unwrap_or(0);
             let amount = find_damage_amount(fields, 31);
 
-            if source_guid.starts_with("Player-") && amount > 0 {
+            if source_guid.starts_with("Player-") && amount > 0 && !dest_guid.starts_with("Player-") {
                 let entry = tracker.damage_by_player
                     .entry(source_guid.clone())
                     .or_default()
@@ -869,6 +1087,10 @@ fn process_combat_event(
                     .entry(source_guid.clone()).or_default()
                     .entry(spell_id).or_default()
                     .entry(dest_name.clone()).or_default() += amount;
+                // Track player damage event for per-pull breakdown
+                tracker.player_damage_events.push((timestamp_secs, source_guid.clone(), amount));
+                // Track per-ability damage event for per-pull ability breakdown
+                tracker.player_ability_events.push((timestamp_secs, source_guid.clone(), spell_id, spell_name.clone(), spell_school, amount, dest_name.clone()));
                 // Bucket player damage by elapsed second
                 if tracker.encounter_start_secs > 0.0 {
                     let elapsed = (timestamp_secs - tracker.encounter_start_secs).max(0.0) as u32;
@@ -906,12 +1128,17 @@ fn process_combat_event(
                     tracker.phase_creature_types
                         .entry(tracker.current_phase).or_default()
                         .entry(dest_name.clone()).or_insert_with(|| guid_type.to_string());
+                    // Track NPC damage event for pull detection
+                    if guid_type == "Creature" || guid_type == "Vehicle" {
+                        tracker.npc_damage_events.push((timestamp_secs, dest_name.clone(), amount, guid_type.to_string()));
+                    }
 
                 }
             }
 
             if dest_guid.starts_with("Player-") && amount > 0 {
                 *tracker.damage_taken_by_player.entry(dest_guid.clone()).or_insert(0) += amount;
+                tracker.player_damage_taken_events.push((timestamp_secs, dest_guid.clone(), spell_id, spell_name.clone(), spell_school, amount, source_name.clone()));
                 let overkill: i64 = fields.get(33).and_then(|s| s.parse().ok()).unwrap_or(-1);
                 tracker.last_damage_to.insert(dest_guid.clone(), (spell_name.clone(), source_name.clone(), amount, overkill));
                 // HP from advanced info: for SPELL events, currentHP at [14], maxHP at [15]
@@ -934,7 +1161,7 @@ fn process_combat_event(
         "SWING_DAMAGE" | "SWING_DAMAGE_LANDED" => {
             let amount = find_damage_amount(fields, 28);
 
-            if source_guid.starts_with("Player-") && amount > 0 {
+            if source_guid.starts_with("Player-") && amount > 0 && !dest_guid.starts_with("Player-") {
                 let entry = tracker.damage_by_player
                     .entry(source_guid.clone())
                     .or_default()
@@ -947,6 +1174,10 @@ fn process_combat_event(
                     .entry(source_guid.clone()).or_default()
                     .entry(0u64).or_default()
                     .entry(dest_name.clone()).or_default() += amount;
+                // Track player damage event for per-pull breakdown
+                tracker.player_damage_events.push((timestamp_secs, source_guid.clone(), amount));
+                // Track per-ability damage event (melee = spell_id 0)
+                tracker.player_ability_events.push((timestamp_secs, source_guid.clone(), 0, "Melee".to_string(), 1, amount, dest_name.clone()));
                 // Bucket player damage by elapsed second
                 if tracker.encounter_start_secs > 0.0 {
                     let elapsed = (timestamp_secs - tracker.encounter_start_secs).max(0.0) as u32;
@@ -959,12 +1190,16 @@ fn process_combat_event(
                     *tracker.phase_damage_targets
                         .entry(tracker.current_phase).or_default()
                         .entry(dest_name.clone()).or_default() += amount;
-
+                    // Track NPC damage event for pull detection
+                    if dest_guid.starts_with("Creature-") || dest_guid.starts_with("Vehicle-") {
+                        tracker.npc_damage_events.push((timestamp_secs, dest_name.clone(), amount, "Creature".to_string()));
+                    }
                 }
             }
 
             if dest_guid.starts_with("Player-") && amount > 0 {
                 *tracker.damage_taken_by_player.entry(dest_guid.clone()).or_insert(0) += amount;
+                tracker.player_damage_taken_events.push((timestamp_secs, dest_guid.clone(), 0, "Melee".to_string(), 1, amount, source_name.clone()));
                 let overkill: i64 = fields.get(30).and_then(|s| s.parse().ok()).unwrap_or(-1);
                 tracker.last_damage_to.insert(dest_guid.clone(), ("Melee".to_string(), source_name.clone(), amount, overkill));
                 // HP from advanced info: for SWING events, currentHP at [11], maxHP at [12]
@@ -1004,6 +1239,10 @@ fn process_combat_event(
                     .entry(source_guid.clone()).or_default()
                     .entry(spell_id).or_default()
                     .entry(dest_name.clone()).or_default() += effective_amount;
+                // Track healing event for per-pull breakdown
+                tracker.player_healing_events.push((timestamp_secs, source_guid.clone(), effective_amount));
+                // Track per-ability heal event for per-pull ability breakdown
+                tracker.player_heal_ability_events.push((timestamp_secs, source_guid.clone(), spell_id, spell_name.clone(), spell_school, effective_amount, dest_name.clone()));
             }
 
             // Track healing received on the target for death recap (use raw amount so heals always show)

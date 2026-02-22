@@ -79,6 +79,27 @@ pub struct KeySegment {
     pub deaths: Vec<DeathEvent>,
     pub buff_uptimes: std::collections::HashMap<String, Vec<BuffUptime>>,
     pub enemy_breakdowns: Vec<EnemyBreakdown>,
+    /// Individual pulls within a trash segment (empty for boss segments)
+    pub pulls: Vec<TrashPull>,
+}
+
+/// An individual pull within a trash segment
+#[derive(Debug, Serialize, Clone)]
+pub struct TrashPull {
+    pub pull_index: usize,
+    pub duration_secs: f64,
+    pub start_time_offset: f64,  // seconds from segment start
+    pub enemies: Vec<PullEnemy>,
+    pub players: Vec<PlayerSummary>,
+    pub deaths: Vec<DeathEvent>,
+}
+
+/// An enemy within a specific pull
+#[derive(Debug, Serialize, Clone)]
+pub struct PullEnemy {
+    pub name: String,
+    pub damage_taken: u64,
+    pub mob_type: String,
 }
 
 /// Per-player stats in an encounter
@@ -96,6 +117,7 @@ pub struct PlayerSummary {
     pub hps: f64,
     pub abilities: Vec<AbilityBreakdown>,
     pub heal_abilities: Vec<AbilityBreakdown>,
+    pub damage_taken_abilities: Vec<AbilityBreakdown>,
 }
 
 /// Damage/healing breakdown per ability
