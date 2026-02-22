@@ -34,40 +34,9 @@ Existing alternatives like Warcraftlogs require **uploading** your combat logs t
 
 ---
 
-## Screenshots
+## Demo
 
-### Home — Log File Browser
-Browse all your combat logs sorted by date. Raid and M+ sessions are auto-detected.
-
-![Log file browser](screenshots/home.png)
-
----
-
-### Raid — Encounter Overview
-All boss encounters grouped by instance with kill/wipe status, pull counts, and best times.
-
-![Raid encounters](screenshots/raid_encounters.png)
-
----
-
-### Raid — Boss Detail
-Deep dive into a specific boss pull with damage meters, class-colored bars, and an interactive boss HP timeline.
-
-![Raid boss detail](screenshots/raid_detail.png)
-
----
-
-### Mythic+ — Key Overview
-See all your M+ runs with key level, dungeon name, timer status (timed/depleted), and completion time.
-
-![M+ encounters](screenshots/mplus_encounters.png)
-
----
-
-### Mythic+ — Run Detail
-Full breakdown of a key with segment timeline (trash packs vs bosses), per-player damage/healing, and death tracking.
-
-![M+ run detail](screenshots/mplus_detail.png)
+![Fast WoW Combat Analyser in action](screenshots/Animation.gif)
 
 ---
 
