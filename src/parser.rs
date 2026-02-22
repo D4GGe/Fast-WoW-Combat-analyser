@@ -1768,6 +1768,7 @@ fn spec_info(spec_id: u32) -> Option<(&'static str, &'static str, &'static str)>
         // Demon Hunter
         577 => Some(("Demon Hunter", "Havoc", "dps")),
         581 => Some(("Demon Hunter", "Vengeance", "tank")),
+        1480 => Some(("Demon Hunter", "Devourer", "dps")),
         // Evoker
         1467 => Some(("Evoker", "Devastation", "dps")),
         1468 => Some(("Evoker", "Preservation", "healer")),
