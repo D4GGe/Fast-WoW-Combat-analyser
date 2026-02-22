@@ -13,7 +13,7 @@
 
 ## Why?
 
-Since the **WoW 12.0 (The War Within)** release, the popular **Details! Damage Meter** addon has struggled to provide reliable post-combat analytics. Encounter breakdowns, damage/healing meters, and timeline data are often inaccurate or missing entirely — leaving raiders and M+ pushers without the tools they need to improve.
+Since the **WoW Midnight** release, the popular **Details! Damage Meter** addon has struggled to provide reliable post-combat analytics. Encounter breakdowns, damage/healing meters, and timeline data are often inaccurate or missing entirely — leaving raiders and M+ pushers without the tools they need to improve.
 
 Existing alternatives like Warcraftlogs require **uploading** your combat logs to an external server and waiting for them to be processed. That's fine for progression review, but when you just want to quickly check how a pull went between attempts, that workflow is too slow.
 
