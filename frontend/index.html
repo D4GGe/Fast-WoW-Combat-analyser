@@ -4,7 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WoW Combat Log Viewer</title>
+  <title>Fast WoW Combat Analyzer</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -850,20 +851,16 @@
 
   <div class="header">
     <div class="header-inner">
-      <div class="logo" onclick="navigateTo('logs')">
-        <div class="logo-icon">⚔️</div>
-        WoW Log Viewer
+      <div class="logo" onclick="navigateTo('logs')" id="headerLogo">
+        <img src="/favicon.png" id="headerLogoImg" style="width:28px;height:28px;border-radius:6px;object-fit:cover"
+          alt="Logo" />
+        Fast WoW Combat Analyzer
       </div>
       <div class="breadcrumb" id="breadcrumb"></div>
       <button onclick="refreshPage()"
         style="background:var(--bg-card);border:1px solid var(--border-color);color:var(--text-secondary);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:5px;transition:all 0.2s"
         onmouseover="this.style.background='var(--bg-card-hover)';this.style.color='var(--text-primary)'"
         onmouseout="this.style.background='var(--bg-card)';this.style.color='var(--text-secondary)'">🔄 Refresh</button>
-      <button onclick="shutdownServer()"
-        style="background:var(--bg-card);border:1px solid var(--accent-red)33;color:var(--accent-red);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:5px;transition:all 0.2s;opacity:0.7"
-        onmouseover="this.style.background='var(--accent-red)';this.style.color='#fff';this.style.opacity='1'"
-        onmouseout="this.style.background='var(--bg-card)';this.style.color='var(--accent-red)';this.style.opacity='0.7'">⏻
-        Shutdown</button>
     </div>
   </div>
 
@@ -873,6 +870,10 @@
       <div class="loading-text">Loading log files...</div>
     </div>
   </div>
+
+  <footer style="text-align:center;padding:18px 0 14px;color:var(--text-muted);font-size:12px;letter-spacing:0.5px">
+    Made with ♥ by D4GGe &nbsp;•&nbsp; v0.1.0
+  </footer>
 
   <script>
     // ========== State ==========
@@ -925,26 +926,7 @@
       }
     }
 
-    async function shutdownServer() {
-      if (!confirm('Shut down the WoW Log Viewer server?')) return;
-      try {
-        await fetch('/api/shutdown', { method: 'POST' });
-        document.getElementById('app').innerHTML = `
-          <div class="empty-state">
-            <div class="icon">👋</div>
-            <div class="title">Server Stopped</div>
-            <p>The WoW Log Viewer server has been shut down. You can close this tab.</p>
-          </div>`;
-      } catch (e) {
-        // Server already gone
-        document.getElementById('app').innerHTML = `
-          <div class="empty-state">
-            <div class="icon">👋</div>
-            <div class="title">Server Stopped</div>
-            <p>The server has been shut down. You can close this tab.</p>
-          </div>`;
-      }
-    }
+
 
     function showToast(message, className) {
       let toast = document.getElementById('refresh-toast');
@@ -976,6 +958,14 @@
     // ========== Navigation ==========
     function navigateTo(view, params = {}) {
       currentView = view;
+      // Dynamic header logo
+      const logoImg = document.getElementById('headerLogoImg');
+      if (view === 'logs') {
+        logoImg.style.display = 'none';
+      } else {
+        logoImg.src = '/favicon.png';
+        logoImg.style.display = '';
+      }
       switch (view) {
         case 'logs':
           currentFilename = null;
@@ -1016,6 +1006,9 @@
         }
 
         app.innerHTML = `
+      <div style="text-align:center;padding:30px 0 10px">
+        <img src="/logo.png" style="width:512px;max-width:90%;height:auto;border-radius:12px;object-fit:contain" alt="Fast WoW Combat Analyzer" />
+      </div>
       <h1 class="page-title">Combat Log Files</h1>
       <p class="page-subtitle">${logs.length} log files found — click one to analyze</p>
       <div class="card-grid">${logs.map(log => `
@@ -1351,6 +1344,7 @@
     <div class="tabs">
       <button class="tab${(window.__currentTab || 'damage') === 'damage' ? ' active' : ''}" onclick="showTab('damage', this)">⚔️ Damage Done</button>
       <button class="tab${(window.__currentTab || 'damage') === 'healing' ? ' active' : ''}" onclick="showTab('healing', this)">💚 Healing Done</button>
+      <button class="tab${(window.__currentTab || 'damage') === 'taken' ? ' active' : ''}" onclick="showTab('taken', this)">🛡️ Damage Taken</button>
       <button class="tab${(window.__currentTab || 'damage') === 'deaths' ? ' active' : ''}" onclick="showTab('deaths', this)">💀 Deaths</button>
       <button class="tab${(window.__currentTab || 'damage') === 'abilities' ? ' active' : ''}" onclick="showTab('abilities', this)">📊 Abilities</button>
       <button class="tab${(window.__currentTab || 'damage') === 'enemies' ? ' active' : ''}" onclick="showTab('enemies', this)">👹 Enemies</button>
@@ -1398,6 +1392,11 @@
         case 'healing': {
           const maxHeal = Math.max(...filtered.players.map(p => p.healing_done), 1);
           content.innerHTML = renderHealingTab(filtered, maxHeal);
+          break;
+        }
+        case 'taken': {
+          const maxTaken = Math.max(...filtered.players.map(p => p.damage_taken || 0), 1);
+          content.innerHTML = renderDamageTakenTab(filtered, maxTaken);
           break;
         }
         case 'deaths': content.innerHTML = renderDeathsTab(filtered); break;
@@ -1500,6 +1499,20 @@
               }
             } else {
               mp.heal_abilities.push({ ...a, targets: (a.targets || []).map(t => ({ ...t })) });
+            }
+          }
+          // Merge damage taken abilities
+          for (const a of (p.damage_taken_abilities || [])) {
+            const existing = (mp.damage_taken_abilities = mp.damage_taken_abilities || []).find(x => x.spell_id === a.spell_id);
+            if (existing) {
+              existing.total_amount += a.total_amount;
+              existing.hit_count += a.hit_count;
+              for (const t of (a.targets || [])) {
+                const et = existing.targets ? existing.targets.find(x => x.target_name === t.target_name) : null;
+                if (et) { et.amount += t.amount; } else { (existing.targets = existing.targets || []).push({ ...t }); }
+              }
+            } else {
+              mp.damage_taken_abilities.push({ ...a, targets: (a.targets || []).map(t => ({ ...t })) });
             }
           }
         }
@@ -1714,10 +1727,11 @@
         if (!pull || !pull.players) continue;
         for (const p of pull.players) {
           if (!merged[p.guid]) {
-            merged[p.guid] = { ...p, damage_done: 0, healing_done: 0, dps: 0, hps: 0 };
+            merged[p.guid] = { ...p, damage_done: 0, healing_done: 0, damage_taken: 0, dps: 0, hps: 0 };
           }
           merged[p.guid].damage_done += p.damage_done;
           merged[p.guid].healing_done += p.healing_done;
+          merged[p.guid].damage_taken += p.damage_taken || 0;
         }
       }
       // Compute combined duration for DPS/HPS
@@ -1987,6 +2001,51 @@
         if (tgBtn) { tgBtn.style.border = '1px solid var(--accent-orange)'; tgBtn.style.background = 'rgba(249,115,22,0.13)'; tgBtn.style.color = 'var(--accent-orange)'; }
         if (abBtn) { abBtn.style.border = '1px solid var(--border-color)'; abBtn.style.background = 'transparent'; abBtn.style.color = 'var(--text-muted)'; }
       }
+    }
+
+    function renderDamageTakenTab(enc, maxTaken) {
+      if (window.__selectedPulls) {
+        const pulls = getSelectedPulls();
+        if (pulls.length > 0) {
+          const merged = mergePullPlayers(pulls, window.__selectedPulls);
+          if (merged.length > 0) {
+            enc = { ...enc, players: merged };
+            maxTaken = Math.max(...merged.map(p => p.damage_taken || 0), 1);
+          }
+        }
+      }
+      const sorted = [...enc.players].filter(p => p.damage_taken > 0).sort((a, b) => (b.damage_taken || 0) - (a.damage_taken || 0));
+      if (sorted.length === 0) return '<div class="empty-state"><div class="title">No damage taken data</div></div>';
+      return `<table class="data-table">
+    <thead><tr><th>#</th><th>Player</th><th>Damage Taken</th><th></th><th class="num">DTPS</th></tr></thead>
+    <tbody>${sorted.map((p, i) => {
+        const pid = `dtaken-${p.guid.replace(/[^a-zA-Z0-9]/g, '')}`;
+        const abilities = p.damage_taken_abilities || [];
+        const dur = enc.duration_secs || 1;
+        const dtps = (p.damage_taken || 0) / dur;
+        return `<tr class="animate-in player-row" style="animation-delay:${i * 20}ms;cursor:pointer" onclick="togglePlayerDetail('${pid}')">
+      <td class="rank ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}</td>
+      <td><strong style="color:${classColor(p.class_name)}">${p.name}</strong>${p.spec_name ? `<span style="color:${classColor(p.class_name)};opacity:0.6;font-size:11px;margin-left:6px">${p.spec_name} ${p.class_name}</span>` : ''}</td>
+      <td class="num">${formatNumber(p.damage_taken)}</td>
+      <td class="bar-cell">
+        <div class="bar-container">
+          <div class="bar-fill" style="width:${((p.damage_taken || 0) / maxTaken * 100).toFixed(1)}%;background:linear-gradient(90deg, var(--accent-red), var(--accent-orange));opacity:0.8"></div>
+          <div class="bar-label">${formatNumber(p.damage_taken)}</div>
+        </div>
+      </td>
+      <td class="num" style="color:var(--accent-red);font-weight:600">${formatNumber(Math.round(dtps))}</td>
+    </tr>
+    <tr id="${pid}" class="detail-row" style="display:none">
+      <td colspan="5" style="padding:0">
+        <div style="display:flex;gap:8px;padding:8px 12px 0 12px">
+          <button onclick="showDetailTab('${pid}','abilities')" id="${pid}-btn-abilities" style="padding:4px 12px;font-size:11px;font-weight:600;border:1px solid var(--accent-purple);background:var(--accent-purple)22;color:var(--accent-purple);border-radius:6px;cursor:pointer">Spells Taken</button>
+          <button onclick="showDetailTab('${pid}','targets')" id="${pid}-btn-targets" style="padding:4px 12px;font-size:11px;font-weight:600;border:1px solid var(--border-color);background:transparent;color:var(--text-muted);border-radius:6px;cursor:pointer">Sources</button>
+        </div>
+        <div id="${pid}-abilities" class="ability-panel">${renderAbilityBreakdown(abilities, p.damage_taken)}</div>
+        <div id="${pid}-targets" class="ability-panel" style="display:none">${renderTargetBreakdown(abilities, p.damage_taken)}</div>
+      </td>
+    </tr>`;
+      }).join('')}</tbody></table>`;
     }
 
     function renderDeathsTab(enc) {

@@ -8,11 +8,30 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+#[repr(C)]
+#[allow(non_snake_case, non_camel_case_types)]
+struct DRAWITEMSTRUCT {
+    pub CtlType: u32,
+    pub CtlID: u32,
+    pub itemID: u32,
+    pub itemAction: u32,
+    pub itemState: ODS_FLAGS,
+    pub hwndItem: HWND,
+    pub hDC: HDC,
+    pub rcItem: RECT,
+    pub itemData: usize,
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+#[allow(non_camel_case_types)]
+struct ODS_FLAGS(pub u32);
+
 const ID_OPEN: i32 = 101;
 const ID_STOP: i32 = 102;
 const ID_CHANGE: i32 = 103;
-const WND_W: i32 = 440;
-const WND_H: i32 = 280;
+const WND_W: i32 = 500;
+const WND_H: i32 = 620;
 
 static SHUTDOWN: OnceLock<Arc<Notify>> = OnceLock::new();
 static PORT_NUM: OnceLock<u16> = OnceLock::new();
@@ -56,12 +75,17 @@ unsafe fn create_and_run() {
     let instance = get_instance();
     let cls = wide("WowLogViewerCtrl");
 
+    // Load the embedded icon resource
+    let icon = LoadIconW(instance, PCWSTR(1 as _)).unwrap_or_default();
+
     let wc = WNDCLASSEXW {
         cbSize: size_of::<WNDCLASSEXW>() as u32,
         lpfnWndProc: Some(wndproc),
         hInstance: instance,
+        hIcon: icon,
+        hIconSm: icon,
         hCursor: LoadCursorW(HINSTANCE::default(), IDC_ARROW).unwrap_or_default(),
-        hbrBackground: HBRUSH((COLOR_BTNFACE.0 + 1) as _),
+        hbrBackground: CreateSolidBrush(COLORREF(0x001E1A1A)),
         lpszClassName: PCWSTR(cls.as_ptr()),
         ..Default::default()
     };
@@ -69,7 +93,7 @@ unsafe fn create_and_run() {
 
     let sx = GetSystemMetrics(SM_CXSCREEN);
     let sy = GetSystemMetrics(SM_CYSCREEN);
-    let title = wide("WoW Combat Log Viewer");
+    let title = wide("Fast WoW Combat Analyzer");
 
     let _ = CreateWindowExW(
         WINDOW_EX_STYLE::default(),
@@ -133,7 +157,7 @@ unsafe fn add_button(parent: HWND, text: &str, x: i32, y: i32, w: i32, h: i32, i
         WINDOW_EX_STYLE::default(),
         w!("BUTTON"),
         PCWSTR(t.as_ptr()),
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(0x0000000B), // BS_OWNERDRAW
         x, y, w, h,
         parent,
         HMENU(id as _),
@@ -146,6 +170,50 @@ unsafe fn add_button(parent: HWND, text: &str, x: i32, y: i32, w: i32, h: i32, i
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
+        WM_CTLCOLORSTATIC => {
+            let hdc = HDC(wp.0 as _);
+            SetTextColor(hdc, COLORREF(0x00F0EAE8)); // Light text (BGR format)
+            SetBkMode(hdc, TRANSPARENT);
+            static mut BRUSH: isize = 0;
+            if BRUSH == 0 {
+                BRUSH = CreateSolidBrush(COLORREF(0x001E1A1A)).0 as isize; // Dark bg
+            }
+            LRESULT(BRUSH)
+        }
+        WM_DRAWITEM => {
+            let dis = &*(lp.0 as *const DRAWITEMSTRUCT);
+            let hdc = dis.hDC;
+            let rc = dis.rcItem;
+            let pressed = (dis.itemState.0 & 0x0001) != 0; // ODS_SELECTED
+
+            // First fill entire rect with window background to kill white corners
+            let win_bg = CreateSolidBrush(COLORREF(0x001E1A1A));
+            let mut full = rc;
+            FillRect(hdc, &mut full, win_bg);
+            let _ = DeleteObject(win_bg);
+
+            // Draw rounded blue-tinted button on top
+            let bg_color = if pressed { COLORREF(0x00503828) } else { COLORREF(0x00352818) };
+            let bg_brush = CreateSolidBrush(bg_color);
+            let round = CreateRoundRectRgn(rc.left, rc.top, rc.right, rc.bottom, 12, 12);
+            FillRgn(hdc, round, bg_brush);
+            let _ = DeleteObject(bg_brush);
+            let _ = DeleteObject(round);
+
+            // Draw text
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, COLORREF(0x00C8C0B8));
+            let font = make_font(-14, false);
+            let old = SelectObject(hdc, font);
+            let mut text_buf = [0u16; 128];
+            let len = GetWindowTextW(dis.hwndItem, &mut text_buf);
+            let mut r = rc;
+            DrawTextW(hdc, &mut text_buf[..len as usize], &mut r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            SelectObject(hdc, old);
+            let _ = DeleteObject(font);
+
+            return LRESULT(1);
+        }
         WM_CREATE => {
             let port = PORT_NUM.get().copied().unwrap_or(3000);
 
@@ -153,24 +221,49 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             let font_sm = make_font(-13, false);
             let font_title = make_font(-18, true);
 
-            add_label(hwnd, "\u{25CF} Server Running", 28, 15, 370, 28, font_title, false);
-            add_label(hwnd, &format!("http://localhost:{}", port), 28, 47, 370, 22, font, false);
+            // Logo icon at the top
+            let inst = get_instance();
+            let icon_handle = LoadImageW(
+                inst,
+                PCWSTR(1 as _),
+                IMAGE_ICON,
+                256, 256,
+                LR_DEFAULTCOLOR,
+            );
+            if let Ok(icon_h) = icon_handle {
+                if let Ok(static_hwnd) = CreateWindowExW(
+                    WINDOW_EX_STYLE::default(),
+                    w!("STATIC"),
+                    PCWSTR::null(),
+                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(0x00000003), // SS_ICON
+                    120, 15, 256, 256,
+                    hwnd,
+                    HMENU(200 as _),
+                    inst,
+                    None,
+                ) {
+                    SendMessageW(static_hwnd, STM_SETICON, WPARAM(icon_h.0 as usize), LPARAM(0));
+                }
+            }
+
+            add_label(hwnd, "\u{25CF} Server Running", 28, 290, 440, 28, font_title, false);
+            add_label(hwnd, &format!("http://localhost:{}", port), 28, 322, 440, 22, font, false);
 
             // Dir label (stored so we can update it later)
-            let dir_hwnd = add_label(hwnd, &dir_display_text(), 28, 73, 330, 20, font_sm, false);
+            let dir_hwnd = add_label(hwnd, &dir_display_text(), 28, 348, 390, 20, font_sm, false);
             if let Some(lock) = DIR_LABEL_HWND.get() {
                 *lock.lock().unwrap() = dir_hwnd.0 as isize;
             }
 
             // Change folder button (small, next to path)
-            add_button(hwnd, "...", 365, 70, 40, 24, ID_CHANGE, font_sm);
+            add_button(hwnd, "...", 425, 345, 40, 24, ID_CHANGE, font_sm);
 
             // Main buttons
-            add_button(hwnd, "Open in Browser", 20, 120, 192, 40, ID_OPEN, font);
-            add_button(hwnd, "Stop Server", 224, 120, 192, 40, ID_STOP, font);
+            add_button(hwnd, "Open in Browser", 20, 400, 222, 44, ID_OPEN, font);
+            add_button(hwnd, "Stop Server", 254, 400, 222, 44, ID_STOP, font);
 
             // Credits
-            add_label(hwnd, "Made with \u{2665} by D4GGe  \u{2022}  v0.1.0", 20, 195, 400, 20, font_sm, true);
+            add_label(hwnd, "Made with \u{2665} by D4GGe  \u{2022}  v0.1.0", 20, 530, 460, 20, font_sm, true);
 
             LRESULT(0)
         }

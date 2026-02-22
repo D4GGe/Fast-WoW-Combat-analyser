@@ -30,15 +30,24 @@ pub fn create_router(log_dir: Arc<std::sync::Mutex<PathBuf>>, shutdown: Arc<Noti
 
     Router::new()
         .route("/", get(index_page))
+        .route("/logo.png", get(serve_logo))
+        .route("/favicon.png", get(serve_favicon))
         .route("/api/logs", get(list_logs))
         .route("/api/logs/{filename}/summary", get(log_summary))
         .route("/api/logs/{filename}/encounter/{index}", get(encounter_detail))
-        .route("/api/shutdown", post(shutdown_server))
         .with_state(state)
 }
 
 async fn index_page() -> Html<&'static str> {
     Html(include_str!("../frontend/index.html"))
+}
+
+async fn serve_logo() -> impl axum::response::IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "image/png")], include_bytes!("../assets/logo.png"))
+}
+
+async fn serve_favicon() -> impl axum::response::IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "image/png")], include_bytes!("../assets/favicon.png"))
 }
 
 async fn list_logs(
@@ -233,10 +242,4 @@ fn find_file_recursive(dir: &std::path::Path, target: &str) -> Option<std::path:
     None
 }
 
-async fn shutdown_server(
-    State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
-    println!("🛑 Shutdown requested via API");
-    state.shutdown.notify_one();
-    Json(serde_json::json!({ "status": "shutting_down" }))
-}
+

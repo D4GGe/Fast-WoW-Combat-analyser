@@ -871,6 +871,17 @@ impl EventTracker {
                     *entry.4.entry(target.clone()).or_default() += amount;
                 }
             }
+            // damage taken abilities (track source in target_name field of TargetBreakdown)
+            let mut pull_dt_abilities: HashMap<String, HashMap<u64, (String, u32, u64, u32, HashMap<String, u64>)>> = HashMap::new();
+            for (ts, dest, spell_id, spell_name, school, amount, source) in &self.player_damage_taken_events {
+                if *ts >= range.start && *ts <= range.end {
+                    let entry = pull_dt_abilities.entry(dest.clone()).or_default()
+                        .entry(*spell_id).or_insert_with(|| (spell_name.clone(), *school, 0, 0, HashMap::new()));
+                    entry.2 += amount;
+                    entry.3 += 1;
+                    *entry.4.entry(source.clone()).or_default() += amount;
+                }
+            }
 
             let pull_duration = (range.end - range.start).max(1.0);
             let mut players: Vec<PlayerSummary> = all_guids.into_iter()
@@ -920,6 +931,29 @@ impl EventTracker {
                         }).collect())
                         .unwrap_or_default();
                     heal_abilities.sort_by(|a, b| b.total_amount.cmp(&a.total_amount));
+                    heal_abilities.sort_by(|a, b| b.total_amount.cmp(&a.total_amount));
+                    // Build damage taken abilities
+                    let mut damage_taken_abilities: Vec<AbilityBreakdown> = pull_dt_abilities.get(&guid)
+                        .map(|spells| spells.iter().map(|(spell_id, (name, school, total, hits, sources))| {
+                            let mut source_vec: Vec<TargetBreakdown> = sources.iter()
+                                .map(|(sn, amt)| TargetBreakdown { target_name: sn.clone(), amount: *amt })
+                                .collect();
+                            source_vec.sort_by(|a, b| b.amount.cmp(&a.amount));
+                            AbilityBreakdown {
+                                spell_id: *spell_id,
+                                spell_name: name.clone(),
+                                spell_school: *school,
+                                total_amount: *total,
+                                hit_count: *hits,
+                                wowhead_url: format!("https://www.wowhead.com/spell={}", spell_id),
+                                targets: source_vec,
+                            }
+                        }).collect())
+                        .unwrap_or_default();
+                    damage_taken_abilities.sort_by(|a, b| b.total_amount.cmp(&a.total_amount));
+                    
+                    let total_taken = damage_taken_abilities.iter().map(|a| a.total_amount).sum();
+
                     PlayerSummary {
                         guid,
                         name,
@@ -927,12 +961,13 @@ impl EventTracker {
                         spec_name,
                         damage_done: dmg,
                         healing_done: heal,
-                        damage_taken: 0,
+                        damage_taken: total_taken,
                         deaths: 0,
                         dps: dmg as f64 / pull_duration,
                         hps: heal as f64 / pull_duration,
                         abilities,
                         heal_abilities,
+                        damage_taken_abilities,
                     }
                 })
                 .collect();
