@@ -1614,10 +1614,77 @@
 
     function renderDamageTab(enc, maxDmg) {
       if (enc.players.length === 0) return '<div class="empty-state"><div class="title">No damage data</div></div>';
+
+      const hasBuckets = enc.time_bucketed_player_damage && Object.keys(enc.time_bucketed_player_damage).length > 0;
+      const isRaid = enc.encounter_type === 'boss';
+      const dur = Math.ceil(enc.duration_secs || 1);
+
+      if (hasBuckets && isRaid) {
+        if (!window.__hpSliderEnc || window.__hpSliderEnc.encounter_name !== enc.encounter_name || window.__hpSliderEnc.start_time !== enc.start_time) {
+          window.__hpSliderLow = 0;
+          window.__hpSliderHigh = dur;
+        }
+        window.__hpSliderEnc = enc;
+        window.__hpSliderMax = dur;
+      } else {
+        window.__hpSliderLow = null;
+        window.__hpSliderHigh = null;
+        window.__hpSliderEnc = null;
+        window.__hpSliderMax = null;
+      }
+
+      let sliderHtml = '';
+      if (hasBuckets && isRaid) {
+        const lo = window.__hpSliderLow;
+        const hi = window.__hpSliderHigh;
+        const loPct = (lo / dur * 100).toFixed(1);
+        const hiPct = (100 - hi / dur * 100).toFixed(1);
+        const fmtTime = function (s) { var m = Math.floor(s / 60); var sec = s % 60; return m + ':' + (sec < 10 ? '0' : '') + sec; };
+
+        // Build boss HP SVG graph
+        var timeline = enc.boss_hp_timeline || [];
+        var svgContent = '';
+        if (timeline.length > 0) {
+          var w = 600, h = 50, maxT = dur;
+          var pts = [[0, 100]];
+          for (var ti = 0; ti < timeline.length; ti++) { pts.push([timeline[ti][0], timeline[ti][1]]); }
+          pts.push([maxT, pts[pts.length - 1][1]]);
+          var pathD = 'M' + pts.map(function (p) { return (p[0] / maxT * w).toFixed(1) + ',' + ((100 - p[1]) / 100 * h).toFixed(1); }).join(' L');
+          svgContent = '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" style="width:100%;height:50px;display:block">'
+            + '<rect x="' + (lo / maxT * w) + '" y="0" width="' + ((hi - lo) / maxT * w) + '" height="' + h + '" fill="var(--accent-cyan)" opacity="0.08"/>'
+            + '<path d="' + pathD + ' L' + w + ',' + h + ' L0,' + h + ' Z" fill="url(#hpGrad)" opacity="0.3"/>'
+            + '<path d="' + pathD + '" fill="none" stroke="var(--accent-red)" stroke-width="1.5"/>'
+            + '<defs><linearGradient id="hpGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent-red)" stop-opacity="0.6"/><stop offset="100%" stop-color="var(--accent-red)" stop-opacity="0.05"/></linearGradient></defs>'
+            + '</svg>';
+        }
+
+        sliderHtml = '<div style="margin-bottom:20px;padding:16px 20px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:12px">'
+          + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+          + '<span style="font-size:13px;font-weight:600;color:var(--text-secondary)">\u23F1\uFE0F Fight Timeline</span>'
+          + '<span id="hp-range-label" style="font-size:13px;font-weight:700;color:var(--accent-cyan)">' + fmtTime(lo) + ' \u2014 ' + fmtTime(hi) + '</span>'
+          + '</div>'
+          + (svgContent ? '<div style="margin-bottom:4px;border-radius:6px;overflow:hidden;border:1px solid var(--border-color);background:var(--bg-secondary)">'
+            + '<div style="display:flex;justify-content:space-between;padding:0 6px;font-size:9px;color:var(--text-muted);margin-top:2px"><span>100%</span><span style="color:var(--accent-red)">Boss HP</span><span>0%</span></div>'
+            + svgContent + '</div>' : '')
+          + '<div style="position:relative;height:36px;user-select:none" id="hp-slider-container">'
+          + '<div style="position:absolute;top:14px;left:0;right:0;height:8px;background:var(--border-color);border-radius:4px"></div>'
+          + '<div id="hp-slider-track" style="position:absolute;top:14px;height:8px;background:linear-gradient(90deg,var(--accent-cyan),var(--accent-blue));border-radius:4px;left:' + loPct + '%;right:' + hiPct + '%"></div>'
+          + '<input type="range" min="0" max="' + dur + '" value="' + lo + '" id="hp-slider-lo" oninput="onHpSliderChange()" style="position:absolute;top:4px;left:0;width:100%;height:28px;-webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;margin:0;z-index:2;outline:none">'
+          + '<input type="range" min="0" max="' + dur + '" value="' + hi + '" id="hp-slider-hi" oninput="onHpSliderChange()" style="position:absolute;top:4px;left:0;width:100%;height:28px;-webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;margin:0;z-index:3;outline:none">'
+          + '</div>'
+          + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px">'
+          + '<span>0:00 (Pull)</span><span>' + fmtTime(dur) + ' (End)</span></div>'
+          + '</div>'
+          + '<style>'
+          + '#hp-slider-lo::-webkit-slider-thumb,#hp-slider-hi::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent-cyan);border:2px solid var(--bg-primary);cursor:pointer;pointer-events:auto;box-shadow:0 2px 6px rgba(0,0,0,0.4)}'
+          + '#hp-slider-lo::-moz-range-thumb,#hp-slider-hi::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--accent-cyan);border:2px solid var(--bg-primary);cursor:pointer;pointer-events:auto;box-shadow:0 2px 6px rgba(0,0,0,0.4)}'
+          + '</style>';
+      }
+
       const sorted = [...enc.players].sort((a, b) => b.damage_done - a.damage_done);
-      return `<table class="data-table">
+      return sliderHtml + `<table class="data-table">
     <thead><tr><th>#</th><th>Player</th><th>Damage Done</th><th></th><th class="num">DPS</th></tr></thead>
-    <tbody>${sorted.map((p, i) => {
+    <tbody id="damage-table-body">${sorted.map((p, i) => {
         const pid = `dmg-${p.guid.replace(/[^a-zA-Z0-9]/g, '')}`;
         return `<tr class="animate-in player-row" style="animation-delay:${i * 20}ms;cursor:pointer" onclick="togglePlayerDetail('${pid}')">
       <td class="rank ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}</td>
@@ -1882,90 +1949,92 @@
 
       const maxTotal = Math.max(...enemies.map(e => e.total_damage), 1);
 
-      // Phase breakdown section (from ENCOUNTER_PHASE_CHANGE events)
-      const phases = enc.phases || [];
-      let phaseHtml = '';
-      if (phases.length > 1) {
-        phaseHtml = `<div style="margin-bottom:20px">
-          <h3 style="font-size:14px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">📊 Phase Breakdown</h3>
-          ${phases.map((phase, pi) => {
-          const phaseDuration = (phase.end_time_secs - phase.start_time_secs);
-          const phaseEnemies = phase.enemy_breakdowns || [];
-          const phaseMax = Math.max(...phaseEnemies.map(e => e.total_damage), 1);
-          const phaseTotalDmg = phaseEnemies.reduce((s, e) => s + e.total_damage, 0);
-          return `<div class="death-item animate-in" style="animation-delay:${pi * 30}ms">
-              <div class="death-header" onclick="toggleEnemy('phase-${pi}', this)" style="cursor:pointer">
-                <span class="expand-icon">▶</span>
-                <div class="death-player" style="flex:1;font-weight:600;display:flex;align-items:center;gap:8px">
-                  <span style="font-size:11px;padding:3px 8px;border-radius:4px;background:var(--accent-cyan)22;color:var(--accent-cyan);font-weight:700">Phase ${phase.phase_id}</span>
-                  <span style="font-size:12px;color:var(--text-secondary)">${formatDuration(phaseDuration)} · ${phaseEnemies.length} target${phaseEnemies.length !== 1 ? 's' : ''}</span>
-                </div>
-                <span style="font-weight:700;font-size:13px;min-width:70px;text-align:right">${formatNumber(phaseTotalDmg)}</span>
-              </div>
-              <div class="death-recap" id="enemy-phase-${pi}">
-                ${phaseEnemies.length > 0 ? phaseEnemies.map((e, ei) => {
-            const typeInfo = {
-              'Boss': { icon: '💀', color: 'var(--accent-purple)' },
-              'Trash': { icon: '👹', color: 'var(--text-muted)' },
-              'Pet': { icon: '🐾', color: 'var(--accent-green)' },
-            }[e.mob_type] || { icon: '❓', color: 'var(--text-muted)' };
-            return `<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border-color)22">
-                    <span style="font-size:10px;color:${typeInfo.color}">${typeInfo.icon}</span>
-                    <span style="flex:1;font-weight:500;font-size:13px">${e.target_name}</span>
-                    <div class="bar-container" style="flex:1;max-width:150px">
-                      <div class="bar-fill" style="width:${(e.total_damage / phaseMax * 100).toFixed(1)}%;background:linear-gradient(90deg,var(--accent-red),var(--accent-orange));opacity:0.6"></div>
-                    </div>
-                    <span style="font-weight:600;font-size:12px;min-width:60px;text-align:right">${formatNumber(e.total_damage)}</span>
-                    <span style="font-size:11px;color:var(--text-muted);min-width:40px;text-align:right">${(e.total_damage / phaseTotalDmg * 100).toFixed(1)}%</span>
-                  </div>`;
-          }).join('') : '<div style="padding:8px 12px;color:var(--text-muted);font-size:12px">No damage in this phase</div>'}
-              </div>
-            </div>`;
-        }).join('')}
-        </div>
-        <h3 style="font-size:14px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">📋 Overall Breakdown</h3>`;
-      }
-
-      return phaseHtml + enemies.map((e, i) => {
-        const maxPlayerDmg = Math.max(...e.players.map(p => p.damage), 1);
-        const typeInfo = {
+      return '<div id="enemies-list">' + enemies.map((e, i) => {
+        const hasPlayers = e.players && e.players.length > 0;
+        const maxPlayerDmg = hasPlayers ? Math.max(...e.players.map(p => p.damage), 1) : 1;
+        const typeInfo = ({
           'Boss': { icon: '💀', color: 'var(--accent-purple)', label: 'Boss' },
           'Trash': { icon: '👹', color: 'var(--text-muted)', label: 'Trash' },
           'Pet': { icon: '🐾', color: 'var(--accent-green)', label: 'Pet' },
-        }[e.mob_type] || { icon: '❓', color: 'var(--text-muted)', label: e.mob_type || 'Unknown' };
-        const killBadge = e.kill_count > 0 ? `<span style="font-size:11px;color:var(--accent-green);margin-left:6px">✕ ${e.kill_count} killed</span>` : '<span style="font-size:11px;color:var(--accent-orange);margin-left:6px">alive</span>';
-        return `
-      <div class="death-item animate-in" style="animation-delay:${i * 30}ms">
-        <div class="death-header" onclick="toggleEnemy(${i}, this)" style="cursor:pointer">
-          <span class="expand-icon">▶</span>
-          <div class="death-player" style="flex:1;font-weight:600;display:flex;align-items:center;gap:6px">
-            <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:${typeInfo.color}22;color:${typeInfo.color};font-weight:700;letter-spacing:0.5px">${typeInfo.icon} ${typeInfo.label}</span>
-            ${e.target_name}${killBadge}
-          </div>
-          <div style="flex:1;display:flex;align-items:center;gap:8px">
-            <div class="bar-container" style="flex:1;max-width:200px">
-              <div class="bar-fill" style="width:${(e.total_damage / maxTotal * 100).toFixed(1)}%;background:linear-gradient(90deg,var(--accent-red),var(--accent-orange));opacity:0.7"></div>
-            </div>
-            <span style="font-weight:700;font-size:13px;min-width:70px;text-align:right">${formatNumber(e.total_damage)}</span>
-          </div>
-          <div class="death-source" style="font-size:12px;color:var(--text-muted)">${e.players.length} player${e.players.length !== 1 ? 's' : ''}</div>
-        </div>
-        <div class="death-recap" id="enemy-${i}">
-          <table class="data-table" style="margin:0;font-size:12px">
-            <thead><tr><th></th><th>Player</th><th>Class</th><th class="num">Damage</th><th></th><th class="num">% of Total</th></tr></thead>
-            <tbody>${e.players.map((p, pi) => `
-              <tr>
-                <td class="rank ${pi < 3 ? 'rank-' + (pi + 1) : ''}">${pi + 1}</td>
-                <td><strong style="color:${classColor(p.class_name)}">${p.player_name}</strong></td>
-                <td style="font-size:11px;color:var(--text-muted)">${p.class_name}</td>
-                <td class="num">${formatNumber(p.damage)}</td>
-                <td class="bar-cell"><div class="bar-container"><div class="bar-fill" style="width:${(p.damage / maxPlayerDmg * 100).toFixed(1)}%;background:${classColor(p.class_name)};opacity:0.6"></div></div></td>
-                <td class="num" style="color:var(--text-secondary)">${(p.damage / e.total_damage * 100).toFixed(1)}%</td>
-              </tr>
-            `).join('')}</tbody>
-          </table>
-        </div>
-      </div>`;
+        })[e.mob_type] || { icon: '❓', color: 'var(--text-muted)', label: e.mob_type || 'Unknown' };
+        const killBadge = e.kill_count > 0 ? '<span style="font-size:11px;color:var(--accent-green);margin-left:6px">✕ ' + e.kill_count + ' killed</span>' : '<span style="font-size:11px;color:var(--accent-orange);margin-left:6px">alive</span>';
+        return '<div class="death-item animate-in" style="animation-delay:' + (i * 30) + 'ms">'
+          + '<div class="death-header"' + (hasPlayers ? ' onclick="toggleEnemy(' + i + ', this)" style="cursor:pointer"' : '') + '>'
+          + (hasPlayers ? '<span class="expand-icon">▶</span>' : '<span style="width:18px"></span>')
+          + '<div class="death-player" style="flex:1;font-weight:600;display:flex;align-items:center;gap:6px">'
+          + '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:' + typeInfo.color + '22;color:' + typeInfo.color + ';font-weight:700;letter-spacing:0.5px">' + typeInfo.icon + ' ' + typeInfo.label + '</span>'
+          + e.target_name + killBadge
+          + '</div>'
+          + '<div style="flex:1;display:flex;align-items:center;gap:8px">'
+          + '<div class="bar-container" style="flex:1;max-width:200px"><div class="bar-fill" style="width:' + (e.total_damage / maxTotal * 100).toFixed(1) + '%;background:linear-gradient(90deg,var(--accent-red),var(--accent-orange));opacity:0.7"></div></div>'
+          + '<span style="font-weight:700;font-size:13px;min-width:70px;text-align:right">' + formatNumber(e.total_damage) + '</span>'
+          + '</div>'
+          + '<div class="death-source" style="font-size:12px;color:var(--text-muted)">' + (hasPlayers ? e.players.length + ' player' + (e.players.length !== 1 ? 's' : '') : '') + '</div>'
+          + '</div>'
+          + (hasPlayers ? '<div class="death-recap" id="enemy-' + i + '">'
+            + '<table class="data-table" style="margin:0;font-size:12px"><thead><tr><th></th><th>Player</th><th>Class</th><th class="num">Damage</th><th></th><th class="num">% of Total</th></tr></thead>'
+            + '<tbody>' + e.players.map((p, pi) =>
+              '<tr><td class="rank ' + (pi < 3 ? 'rank-' + (pi + 1) : '') + '">' + (pi + 1) + '</td>'
+              + '<td><strong style="color:' + classColor(p.class_name) + '">' + p.player_name + '</strong></td>'
+              + '<td style="font-size:11px;color:var(--text-muted)">' + p.class_name + '</td>'
+              + '<td class="num">' + formatNumber(p.damage) + '</td>'
+              + '<td class="bar-cell"><div class="bar-container"><div class="bar-fill" style="width:' + (p.damage / maxPlayerDmg * 100).toFixed(1) + '%;background:' + classColor(p.class_name) + ';opacity:0.6"></div></div></td>'
+              + '<td class="num" style="color:var(--text-secondary)">' + (p.damage / e.total_damage * 100).toFixed(1) + '%</td></tr>'
+            ).join('') + '</tbody></table></div>' : '')
+          + '</div>';
+      }).join('') + '</div>';
+    }
+
+    function buildFilteredPlayers(enc, lo, hi) {
+      const buckets = enc.time_bucketed_player_damage || {};
+      const playerDamage = {};
+      for (const [bucket, players] of Object.entries(buckets)) {
+        const b = parseInt(bucket);
+        if (b >= lo && b <= hi) {
+          for (const [guid, dmg] of Object.entries(players)) {
+            playerDamage[guid] = (playerDamage[guid] || 0) + dmg;
+          }
+        }
+      }
+      // DPS = damage in selected window / window duration
+      const windowDur = Math.max(hi - lo, 1);
+      return (enc.players || []).map(p => {
+        const dmg = playerDamage[p.guid] || 0;
+        return { ...p, damage_done: dmg, dps: dmg / windowDur };
+      }).filter(p => p.damage_done > 0).sort((a, b) => b.damage_done - a.damage_done);
+    }
+
+    function onHpSliderChange() {
+      const loEl = document.getElementById('hp-slider-lo');
+      const hiEl = document.getElementById('hp-slider-hi');
+      if (!loEl || !hiEl) return;
+      let lo = parseInt(loEl.value), hi = parseInt(hiEl.value);
+      if (lo > hi) { const t = lo; lo = hi; hi = t; loEl.value = lo; hiEl.value = hi; }
+      window.__hpSliderLow = lo;
+      window.__hpSliderHigh = hi;
+      const fmtTime = function (s) { var m = Math.floor(s / 60); var sec = s % 60; return m + ':' + (sec < 10 ? '0' : '') + sec; };
+      const label = document.getElementById('hp-range-label');
+      if (label) label.textContent = fmtTime(lo) + ' \u2014 ' + fmtTime(hi);
+      const track = document.getElementById('hp-slider-track');
+      const maxVal = window.__hpSliderMax || 100;
+      if (track) { track.style.left = (lo / maxVal * 100) + '%'; track.style.right = (100 - hi / maxVal * 100) + '%'; }
+      if (!window.__hpSliderEnc) return;
+      const enc = window.__hpSliderEnc;
+      const dur = Math.ceil(enc.duration_secs || 1);
+      const players = (lo === 0 && hi >= dur) ? [...enc.players].sort((a, b) => b.damage_done - a.damage_done) : buildFilteredPlayers(enc, lo, hi);
+      const tableBody = document.getElementById('damage-table-body');
+      if (!tableBody) return;
+      const maxDmg = Math.max(...players.map(p => p.damage_done), 1);
+      tableBody.innerHTML = players.map((p, i) => {
+        const pid = 'dmg-' + p.guid.replace(/[^a-zA-Z0-9]/g, '');
+        return '<tr class="player-row" style="cursor:pointer" onclick="togglePlayerDetail(\'' + pid + '\')">'
+          + '<td class="rank ' + (i < 3 ? 'rank-' + (i + 1) : '') + '">' + (i + 1) + '</td>'
+          + '<td><strong style="color:' + classColor(p.class_name) + '">' + p.name + '</strong>' + (p.spec_name ? '<span style="color:' + classColor(p.class_name) + ';opacity:0.6;font-size:11px;margin-left:6px">' + p.spec_name + ' ' + p.class_name + '</span>' : '') + '</td>'
+          + '<td class="num">' + formatNumber(p.damage_done) + '</td>'
+          + '<td class="bar-cell"><div class="bar-container"><div class="bar-fill" style="width:' + (p.damage_done / maxDmg * 100).toFixed(1) + '%;background:linear-gradient(90deg, var(--accent-purple), var(--accent-blue));opacity:0.8"></div><div class="bar-label">' + formatNumber(p.damage_done) + '</div></div></td>'
+          + '<td class="num" style="color:var(--accent-orange);font-weight:600">' + formatNumber(Math.round(p.dps)) + '</td>'
+          + '</tr>'
+          + '<tr id="' + pid + '" class="detail-row" style="display:none"><td colspan="5" style="padding:0"><div class="ability-panel">' + renderAbilityBreakdown(p.abilities || [], p.damage_done) + '</div></td></tr>';
       }).join('');
     }
 

@@ -40,6 +40,10 @@ pub struct EncounterSummary {
     pub boss_max_hp: Option<u64>,
     /// Per-phase enemy breakdowns (from ENCOUNTER_PHASE_CHANGE events)
     pub phases: Vec<PhaseBreakdown>,
+    /// Time-bucketed player damage: elapsed second -> player_guid -> damage
+    pub time_bucketed_player_damage: std::collections::HashMap<u32, std::collections::HashMap<String, u64>>,
+    /// Boss HP timeline: Vec of (elapsed_secs, hp_pct) sampled at damage events
+    pub boss_hp_timeline: Vec<(f64, f64)>,
 }
 
 /// Individual boss encounter within a M+ run

@@ -195,6 +195,8 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                         boss_hp_pct: None,
                         boss_max_hp: None,
                         phases: Vec::new(),
+                        time_bucketed_player_damage: HashMap::new(),
+                        boss_hp_timeline: Vec::new(),
                     });
 
                     in_key = false;
@@ -247,6 +249,8 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                     standalone_difficulty = difficulty;
                     standalone_group_size = group_size;
                     standalone_tracker = EventTracker::new();
+                    standalone_tracker.boss_encounter_name = standalone_name.clone();
+                    standalone_tracker.encounter_start_secs = timestamp_secs;
                 }
             }
             "ENCOUNTER_PHASE_CHANGE" => {
@@ -336,6 +340,8 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                             timestamp_secs,
                             &[standalone_name.clone()]
                         ),
+                        time_bucketed_player_damage: standalone_tracker.time_bucketed_player_damage.clone(),
+                        boss_hp_timeline: standalone_tracker.boss_hp_timeline.clone(),
                     });
 
                     standalone_boss = false;
@@ -406,6 +412,18 @@ struct EventTracker {
     phase_damage_targets: HashMap<u32, HashMap<String, u64>>,
     /// Creature types per phase for proper enemy labeling
     phase_creature_types: HashMap<u32, HashMap<String, String>>,
+    /// Boss encounter name for HP tracking
+    boss_encounter_name: String,
+    /// Current boss HP percentage (0.0-100.0), updated from damage events to boss
+    current_boss_hp_pct: f64,
+    /// The highest maxHP seen among creatures — we treat this creature as the boss
+    boss_max_hp_seen: u64,
+    /// Encounter start time in seconds (for time-based bucketing)
+    encounter_start_secs: f64,
+    /// Time-bucketed player damage: elapsed second -> player_guid -> damage
+    time_bucketed_player_damage: HashMap<u32, HashMap<String, u64>>,
+    /// Boss HP timeline: (elapsed_secs, hp_pct) sampled when boss takes damage
+    boss_hp_timeline: Vec<(f64, f64)>,
 }
 
 impl EventTracker {
@@ -433,6 +451,12 @@ impl EventTracker {
             phase_transitions: Vec::new(),
             phase_damage_targets: HashMap::new(),
             phase_creature_types: HashMap::new(),
+            boss_encounter_name: String::new(),
+            current_boss_hp_pct: 100.0,
+            boss_max_hp_seen: 0,
+            encounter_start_secs: 0.0,
+            time_bucketed_player_damage: HashMap::new(),
+            boss_hp_timeline: Vec::new(),
         }
     }
 
@@ -845,6 +869,13 @@ fn process_combat_event(
                     .entry(source_guid.clone()).or_default()
                     .entry(spell_id).or_default()
                     .entry(dest_name.clone()).or_default() += amount;
+                // Bucket player damage by elapsed second
+                if tracker.encounter_start_secs > 0.0 {
+                    let elapsed = (timestamp_secs - tracker.encounter_start_secs).max(0.0) as u32;
+                    *tracker.time_bucketed_player_damage
+                        .entry(elapsed).or_default()
+                        .entry(source_guid.clone()).or_default() += amount;
+                }
                 // Record creature type from GUID for enemies tab
                 if !dest_guid.starts_with("Player-") && !dest_name.is_empty() {
                     let guid_type = if dest_guid.starts_with("Creature-") { "Creature" }
@@ -857,6 +888,16 @@ fn process_combat_event(
                     let m_hp: u64 = fields.get(15).and_then(|s| s.parse().ok()).unwrap_or(0);
                     if m_hp > 0 {
                         tracker.last_creature_hp.insert(dest_name.clone(), (c_hp, m_hp));
+                        // Update boss HP % — track the creature with the highest maxHP as the boss
+                        if !tracker.boss_encounter_name.is_empty() && m_hp >= tracker.boss_max_hp_seen {
+                            tracker.boss_max_hp_seen = m_hp;
+                            tracker.current_boss_hp_pct = c_hp as f64 / m_hp as f64 * 100.0;
+                            // Record boss HP timeline point
+                            if tracker.encounter_start_secs > 0.0 {
+                                let elapsed = timestamp_secs - tracker.encounter_start_secs;
+                                tracker.boss_hp_timeline.push((elapsed, tracker.current_boss_hp_pct));
+                            }
+                        }
                     }
                     // Track per-phase damage to enemies
                     *tracker.phase_damage_targets
@@ -865,6 +906,7 @@ fn process_combat_event(
                     tracker.phase_creature_types
                         .entry(tracker.current_phase).or_default()
                         .entry(dest_name.clone()).or_insert_with(|| guid_type.to_string());
+
                 }
             }
 
@@ -905,11 +947,19 @@ fn process_combat_event(
                     .entry(source_guid.clone()).or_default()
                     .entry(0u64).or_default()
                     .entry(dest_name.clone()).or_default() += amount;
-                // Track per-phase damage to enemies
+                // Bucket player damage by elapsed second
+                if tracker.encounter_start_secs > 0.0 {
+                    let elapsed = (timestamp_secs - tracker.encounter_start_secs).max(0.0) as u32;
+                    *tracker.time_bucketed_player_damage
+                        .entry(elapsed).or_default()
+                        .entry(source_guid.clone()).or_default() += amount;
+                }
+                // Track per-phase and HP-bucketed damage to enemies
                 if !dest_guid.starts_with("Player-") && !dest_name.is_empty() {
                     *tracker.phase_damage_targets
                         .entry(tracker.current_phase).or_default()
                         .entry(dest_name.clone()).or_default() += amount;
+
                 }
             }
 
