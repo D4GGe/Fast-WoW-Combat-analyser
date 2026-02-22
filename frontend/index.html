@@ -905,6 +905,72 @@
       text-decoration: underline;
     }
 
+    .ability-cell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+    }
+
+    .spell-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      flex-shrink: 0;
+      image-rendering: auto;
+    }
+
+    .spell-tooltip-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spell-tooltip {
+      position: fixed;
+      min-width: 280px;
+      max-width: 360px;
+      padding: 12px 14px;
+      background: rgba(20, 20, 35, 0.97);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      z-index: 10000;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.12s;
+    }
+
+    .spell-tooltip.visible {
+      opacity: 1;
+    }
+
+    .spell-tooltip-name {
+      font-weight: 700;
+      font-size: 14px;
+      color: #fff;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .spell-tooltip-desc {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.7);
+      line-height: 1.5;
+    }
+
+    .spell-tooltip-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
     /* Loading */
     .loading {
       display: flex;
@@ -1141,11 +1207,97 @@
     Made with ♥ by D4GGe &nbsp;•&nbsp; v0.1.0
   </footer>
 
+  <!-- Global spell tooltip (position:fixed, never clipped) -->
+  <div id="spell-tooltip-global" class="spell-tooltip"></div>
+
   <script>
     // ========== State ==========
     let currentView = 'logs';
     let currentFilename = null;
     let currentSummary = null;
+    let spellTooltips = {};
+    let spellTooltipsByName = {}; // fallback: lowercase spell name -> tooltip
+
+    // Load spell tooltips and build name-based fallback index
+    fetch('/api/spell_tooltips').then(r => r.ok ? r.json() : {}).then(data => {
+      spellTooltips = data || {};
+      // Build name lookup — only store entries that have actual data
+      for (const [id, tt] of Object.entries(spellTooltips)) {
+        if (tt.name && (tt.icon_url || tt.description)) {
+          const key = tt.name.toLowerCase();
+          // Keep the one with the most data (prefer entries with both icon and description)
+          const existing = spellTooltipsByName[key];
+          if (!existing || (!existing.icon_url && tt.icon_url) || (!existing.description && tt.description)) {
+            spellTooltipsByName[key] = tt;
+          }
+        }
+      }
+    }).catch(() => { });
+
+    // Lookup helper: try spell_id first, then fall back to name match
+    function getSpellTooltip(spellId, spellName) {
+      const byId = spellTooltips[String(spellId)];
+      if (byId && (byId.icon_url || byId.description)) return byId;
+      if (spellName) {
+        const byName = spellTooltipsByName[spellName.toLowerCase()];
+        if (byName) return byName;
+      }
+      return null;
+    }
+
+    // Reusable: render spell icon + name with tooltip
+    function spellHtml(spellId, spellName, wowheadUrl, opts) {
+      opts = opts || {};
+      const tt = getSpellTooltip(spellId, spellName) || {};
+      const linkColor = opts.color || 'var(--accent-gold)';
+      const iconSize = opts.iconSize || 18;
+      const iconHtml = tt.icon_url ? `<img class="spell-icon" src="${tt.icon_url}" alt="" loading="lazy" style="width:${iconSize}px;height:${iconSize}px">` : '';
+      const nameHtml = wowheadUrl
+        ? `<a href="${wowheadUrl}" target="_blank" style="color:${linkColor};text-decoration:none;font-weight:500" ${opts.stopClick ? 'onclick="event.stopPropagation()"' : ''}>${spellName}</a>`
+        : `<span style="color:${linkColor};font-weight:500">${spellName}</span>`;
+      const hasTooltip = tt.name || tt.description;
+      const dataAttr = hasTooltip ? ` data-spell-id="${spellId}" data-spell-name="${spellName}"` : '';
+      return `<div class="spell-tooltip-wrap"${dataAttr}>${iconHtml}${nameHtml}</div>`;
+    }
+
+    // Global tooltip logic
+    (function () {
+      const tip = document.getElementById('spell-tooltip-global');
+      let activeWrap = null;
+
+      document.addEventListener('mouseover', function (e) {
+        const wrap = e.target.closest('.spell-tooltip-wrap[data-spell-id]');
+        if (!wrap || wrap === activeWrap) return;
+        activeWrap = wrap;
+        const sid = wrap.getAttribute('data-spell-id');
+        const sname = wrap.getAttribute('data-spell-name');
+        const tt = getSpellTooltip(sid, sname);
+        if (!tt || (!tt.name && !tt.description)) { tip.classList.remove('visible'); return; }
+        tip.innerHTML = `<div class="spell-tooltip-name">${tt.icon_url ? `<img class="spell-tooltip-icon" src="${tt.icon_url}">` : ''}${tt.name || sname}</div>${tt.description ? `<div class="spell-tooltip-desc">${tt.description}</div>` : ''}`;
+        const rect = wrap.getBoundingClientRect();
+        let top = rect.top - tip.offsetHeight - 8;
+        let left = rect.left;
+        // If tooltip would go off top, show below instead
+        if (top < 4) top = rect.bottom + 8;
+        // Keep within viewport horizontally
+        if (left + 360 > window.innerWidth) left = window.innerWidth - 370;
+        if (left < 4) left = 4;
+        tip.style.top = top + 'px';
+        tip.style.left = left + 'px';
+        tip.classList.add('visible');
+      });
+
+      document.addEventListener('mouseout', function (e) {
+        const wrap = e.target.closest('.spell-tooltip-wrap[data-spell-id]');
+        if (wrap && wrap === activeWrap) {
+          // Check if we moved to a child of the same wrap
+          if (!wrap.contains(e.relatedTarget)) {
+            activeWrap = null;
+            tip.classList.remove('visible');
+          }
+        }
+      });
+    })();
 
     async function refreshPage() {
       if ((currentView === 'encounter' || currentView === 'encounters') && currentFilename) {
@@ -2199,7 +2351,7 @@
         const tid = `abl-${a.spell_id}-${Math.random().toString(36).substr(2, 5)}`;
         return `<tr class="ability-row" style="cursor:${hasTargets ? 'pointer' : 'default'}" ${hasTargets ? `onclick="togglePlayerDetail('${tid}')"` : ''}>
             <td style="padding:6px 12px;width:30%;white-space:nowrap">
-              <a href="${a.wowhead_url}" target="_blank" style="color:var(--accent-gold);text-decoration:none;font-weight:500" onclick="event.stopPropagation()">${a.spell_name}</a>
+              ${spellHtml(a.spell_id, a.spell_name, a.wowhead_url, { stopClick: true })}
               <span style="color:var(--text-muted);font-size:11px;margin-left:4px">${a.hit_count} hits</span>
             </td>
             <td style="padding:6px 8px;width:50%">
@@ -2367,7 +2519,7 @@
             <div class="recap-time" style="font-variant-numeric:tabular-nums">${timeStr}</div>
             <div class="recap-type ${r.event_type}">${typeLabel}</div>
             <div class="recap-amount ${amountClass}" style="min-width:70px">${amountStr || '—'}</div>
-            ${r.wowhead_url ? `<a href="${r.wowhead_url}" target="_blank" class="recap-spell">${r.spell_name}</a>` : `<span class="recap-spell">${r.spell_name}</span>`}
+            ${(() => { const stt = getSpellTooltip(r.spell_id, r.spell_name) || {}; const sIcon = stt.icon_url ? `<img class="spell-icon" src="${stt.icon_url}" alt="" loading="lazy" style="width:16px;height:16px">` : ''; const hasT = stt.name || stt.description; return `<div class="spell-tooltip-wrap"${hasT ? ` data-spell-id="${r.spell_id}" data-spell-name="${r.spell_name}"` : ''}>${sIcon}${r.wowhead_url ? `<a href="${r.wowhead_url}" target="_blank" class="recap-spell">${r.spell_name}</a>` : `<span class="recap-spell">${r.spell_name}</span>`}</div>`; })()}
             <div class="recap-source">${r.source_name}</div>
             ${hpPct >= 0 ? `<div class="recap-hp"><div class="recap-hp-bar"><div class="recap-hp-track"><div class="recap-hp-fill" style="width:${hpPct}%;background:${hpColor}"></div></div><div class="recap-hp-text">${hpPct}%</div></div></div>` : '<div class="recap-hp"></div>'}
           </div>`;
@@ -2454,9 +2606,17 @@
       const maxAb = Math.max(...abilities.map(a => a.total_amount), 1);
       return `<table class="data-table">
     <thead><tr><th>#</th><th>Ability</th><th>Hits</th><th>Total</th><th></th></tr></thead>
-    <tbody>${abilities.map((a, i) => `<tr class="animate-in" style="animation-delay:${i * 15}ms">
+    <tbody>${abilities.map((a, i) => {
+        const tt = getSpellTooltip(a.spell_id, a.spell_name) || {};
+        const iconHtml = tt.icon_url ? `<img class="spell-icon" src="${tt.icon_url}" alt="" loading="lazy">` : '';
+        const hasTooltip = tt.name || tt.description;
+        const dataAttr = hasTooltip ? ` data-spell-id="${a.spell_id}" data-spell-name="${a.spell_name}"` : '';
+        return `<tr class="animate-in" style="animation-delay:${i * 15}ms">
       <td class="rank">${i + 1}</td>
-      <td><a href="${a.wowhead_url}" target="_blank" class="ability-link">${a.spell_name}</a></td>
+      <td><div class="spell-tooltip-wrap"${dataAttr}>
+        ${iconHtml}
+        <a href="${a.wowhead_url}" target="_blank" class="ability-link">${a.spell_name}</a>
+      </div></td>
       <td class="num">${a.hit_count}</td>
       <td class="num">${formatNumber(a.total_amount)}</td>
       <td class="bar-cell">
@@ -2464,7 +2624,8 @@
           <div class="bar-fill" style="width:${(a.total_amount / maxAb * 100).toFixed(1)}%;background:${getSchoolColor(a.spell_school)};opacity:0.7"></div>
         </div>
       </td>
-    </tr>`).join('')}</tbody></table>`;
+    </tr>`;
+      }).join('')}</tbody></table>`;
     }
 
     // ========== Utility ==========
@@ -2795,7 +2956,7 @@
         <tbody>${filteredBuffs.map((b, i) => `
           <tr class="animate-in" style="animation-delay:${i * 15}ms">
             <td style="white-space:nowrap">
-              <a href="${b.wowhead_url}" target="_blank" style="color:var(--accent-gold);text-decoration:none;font-weight:500">${b.spell_name}</a>
+              ${spellHtml(b.spell_id, b.spell_name, b.wowhead_url)}
             </td>
             <td style="font-size:12px;color:var(--text-secondary)">${b.source_name || '—'}</td>
             <td class="num" style="min-width:60px;font-weight:600;color:${b.uptime_pct > 80 ? 'var(--accent-green)' : b.uptime_pct > 40 ? 'var(--accent-orange)' : 'var(--text-secondary)'}">

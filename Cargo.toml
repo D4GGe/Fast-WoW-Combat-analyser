@@ -3,6 +3,14 @@ name = "wowlogger"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "wowlogger"
+path = "src/main.rs"
+
+[[bin]]
+name = "spell_fetcher"
+path = "src/spell_fetcher.rs"
+
 [dependencies]
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
@@ -13,6 +21,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tower-http = { version = "0.6", features = ["cors"] }
 rfd = "0.15"
 open = "5"
+reqwest = { version = "0.12", features = ["json"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

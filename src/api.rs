@@ -35,6 +35,7 @@ pub fn create_router(log_dir: Arc<std::sync::Mutex<PathBuf>>, shutdown: Arc<Noti
         .route("/api/logs", get(list_logs))
         .route("/api/logs/{filename}/summary", get(log_summary))
         .route("/api/logs/{filename}/encounter/{index}", get(encounter_detail))
+        .route("/api/spell_tooltips", get(serve_spell_tooltips))
         .with_state(state)
 }
 
@@ -48,6 +49,11 @@ async fn serve_logo() -> impl axum::response::IntoResponse {
 
 async fn serve_favicon() -> impl axum::response::IntoResponse {
     ([(axum::http::header::CONTENT_TYPE, "image/png")], include_bytes!("../assets/favicon.png"))
+}
+
+async fn serve_spell_tooltips() -> impl axum::response::IntoResponse {
+    let json = include_str!("../frontend/spell_tooltips.json");
+    ([(axum::http::header::CONTENT_TYPE, "application/json")], json)
 }
 
 async fn list_logs(

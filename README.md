@@ -72,6 +72,34 @@ cargo build --release
 
 ---
 
+## Spell Tooltips (Optional)
+
+A bundled `spell_fetcher` tool can fetch spell names, descriptions, and icon URLs from the **Blizzard Game Data API** and cache them locally for the frontend to use.
+
+### Setup
+
+1. Create API credentials at [https://develop.battle.net/access/clients](https://develop.battle.net/access/clients)
+2. Build the tool:
+   ```bash
+   cargo build --release --bin spell_fetcher
+   ```
+3. Run it:
+   ```powershell
+   # Set credentials (or the tool will prompt you)
+   $env:BLIZZARD_CLIENT_ID = "your_client_id"
+   $env:BLIZZARD_CLIENT_SECRET = "your_client_secret"
+
+   # Run — defaults to C:\World of Warcraft\_retail_\Logs, EU region
+   .\target\release\spell_fetcher.exe
+
+   # Or specify a custom log directory and/or region
+   .\target\release\spell_fetcher.exe "C:\path\to\logs" --region us
+   ```
+
+The tool scans all `WoWCombatLog*.txt` files, extracts unique spell IDs, and fetches data from Blizzard's API into `frontend/spell_tooltips.json`. It **skips spells already in the cache**, so subsequent runs only fetch new ones.
+
+---
+
 ## Tech Stack
 
 - **Backend**: Rust (Tokio + Axum) — fast, safe, and memory-efficient
