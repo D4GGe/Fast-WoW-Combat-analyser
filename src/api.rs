@@ -14,14 +14,14 @@ use crate::models::*;
 use crate::parser;
 
 pub struct AppState {
-    pub log_dir: PathBuf,
+    pub log_dir: Arc<std::sync::Mutex<PathBuf>>,
     /// Cache: filename -> (file_size_at_parse, parsed_summary)
     pub cache: Mutex<HashMap<String, (u64, CombatLogSummary)>>,
     /// Shutdown signal
     pub shutdown: Arc<Notify>,
 }
 
-pub fn create_router(log_dir: PathBuf, shutdown: Arc<Notify>) -> Router {
+pub fn create_router(log_dir: Arc<std::sync::Mutex<PathBuf>>, shutdown: Arc<Notify>) -> Router {
     let state = Arc::new(AppState {
         log_dir,
         cache: Mutex::new(HashMap::new()),
@@ -44,10 +44,10 @@ async fn index_page() -> Html<&'static str> {
 async fn list_logs(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<LogFileInfo>>, (StatusCode, String)> {
-    let dir = &state.log_dir;
+    let dir = state.log_dir.lock().unwrap().clone();
 
     let mut logs: Vec<LogFileInfo> = Vec::new();
-    let mut dirs_to_scan = vec![dir.clone()];
+    let mut dirs_to_scan = vec![dir];
 
     while let Some(scan_dir) = dirs_to_scan.pop() {
         let entries = match std::fs::read_dir(&scan_dir) {
@@ -107,7 +107,8 @@ async fn log_summary(
     }
 
     // Search recursively for the file
-    let path = find_file_recursive(&state.log_dir, &filename)
+    let log_dir = state.log_dir.lock().unwrap().clone();
+    let path = find_file_recursive(&log_dir, &filename)
         .ok_or((StatusCode::NOT_FOUND, "Log file not found".to_string()))?;
 
     // Check current file size
@@ -171,7 +172,8 @@ async fn encounter_detail(
         return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
     }
 
-    let path = find_file_recursive(&state.log_dir, &filename)
+    let log_dir = state.log_dir.lock().unwrap().clone();
+    let path = find_file_recursive(&log_dir, &filename)
         .ok_or((StatusCode::NOT_FOUND, "Log file not found".to_string()))?;
 
     let summary = tokio::task::spawn_blocking(move || {

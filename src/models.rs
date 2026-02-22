@@ -34,6 +34,12 @@ pub struct EncounterSummary {
     pub buff_uptimes: std::collections::HashMap<String, Vec<BuffUptime>>,
     /// Per-enemy damage breakdown
     pub enemy_breakdowns: Vec<EnemyBreakdown>,
+    /// Boss remaining HP percentage (0.0 for kills, e.g. 35.2 for 35.2% wipe)
+    pub boss_hp_pct: Option<f64>,
+    /// Boss max HP
+    pub boss_max_hp: Option<u64>,
+    /// Per-phase enemy breakdowns (from ENCOUNTER_PHASE_CHANGE events)
+    pub phases: Vec<PhaseBreakdown>,
 }
 
 /// Individual boss encounter within a M+ run
@@ -45,6 +51,15 @@ pub struct BossEncounter {
     pub duration_secs: f64,
     pub start_time: String,
     pub end_time: String,
+}
+
+/// Phase breakdown for a boss encounter
+#[derive(Debug, Serialize, Clone)]
+pub struct PhaseBreakdown {
+    pub phase_id: u32,
+    pub start_time_secs: f64,
+    pub end_time_secs: f64,
+    pub enemy_breakdowns: Vec<EnemyBreakdown>,
 }
 
 /// A segment within a M+ key (trash pack or boss fight)

@@ -192,6 +192,9 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                         enemy_breakdowns: tracker.build_enemy_breakdowns(
                             &key_boss_encounters.iter().map(|b| b.name.clone()).collect::<Vec<_>>()
                         ),
+                        boss_hp_pct: None,
+                        boss_max_hp: None,
+                        phases: Vec::new(),
                     });
 
                     in_key = false;
@@ -244,6 +247,21 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                     standalone_difficulty = difficulty;
                     standalone_group_size = group_size;
                     standalone_tracker = EventTracker::new();
+                }
+            }
+            "ENCOUNTER_PHASE_CHANGE" => {
+                // Blizzard's native phase change event
+                // Format: ENCOUNTER_PHASE_CHANGE,phaseNumber
+                let phase_id: u32 = fields.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+                if standalone_boss {
+                    standalone_tracker.current_phase = phase_id;
+                    standalone_tracker.phase_transitions.push((timestamp_secs, phase_id));
+                }
+                if in_key && in_boss {
+                    segment_tracker.current_phase = phase_id;
+                    segment_tracker.phase_transitions.push((timestamp_secs, phase_id));
+                    tracker.current_phase = phase_id;
+                    tracker.phase_transitions.push((timestamp_secs, phase_id));
                 }
             }
             "ENCOUNTER_END" => {
@@ -309,6 +327,15 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                         enemy_breakdowns: standalone_tracker.build_enemy_breakdowns(
                             &[standalone_name.clone()]
                         ),
+                        boss_hp_pct: standalone_tracker.last_creature_hp.get(&standalone_name)
+                            .map(|(cur, max)| if *max > 0 { (*cur as f64 / *max as f64 * 100.0) } else { 0.0 }),
+                        boss_max_hp: standalone_tracker.last_creature_hp.get(&standalone_name)
+                            .map(|(_, max)| *max),
+                        phases: standalone_tracker.build_phase_breakdowns(
+                            standalone_start_time.unwrap_or(timestamp_secs),
+                            timestamp_secs,
+                            &[standalone_name.clone()]
+                        ),
                     });
 
                     standalone_boss = false;
@@ -369,6 +396,16 @@ struct EventTracker {
     kill_counts: HashMap<String, u32>,
     /// Creature type from GUID: target_name -> guid_type ("Creature", "Vehicle", "Pet", etc.)
     creature_types: HashMap<String, String>,
+    /// Last known HP for non-player targets: dest_name -> (currentHP, maxHP)
+    last_creature_hp: HashMap<String, (u64, u64)>,
+    /// Current encounter phase (from ENCOUNTER_PHASE_CHANGE events)
+    current_phase: u32,
+    /// Phase transitions: (timestamp_secs, phase_id)
+    phase_transitions: Vec<(f64, u32)>,
+    /// Per-phase per-target damage: phase_id -> target_name -> total_damage
+    phase_damage_targets: HashMap<u32, HashMap<String, u64>>,
+    /// Creature types per phase for proper enemy labeling
+    phase_creature_types: HashMap<u32, HashMap<String, String>>,
 }
 
 impl EventTracker {
@@ -391,6 +428,11 @@ impl EventTracker {
             aura_sources: HashMap::new(),
             kill_counts: HashMap::new(),
             creature_types: HashMap::new(),
+            last_creature_hp: HashMap::new(),
+            current_phase: 1,
+            phase_transitions: Vec::new(),
+            phase_damage_targets: HashMap::new(),
+            phase_creature_types: HashMap::new(),
         }
     }
 
@@ -677,6 +719,88 @@ impl EventTracker {
         breakdowns.sort_by(|a, b| b.total_damage.cmp(&a.total_damage));
         breakdowns
     }
+
+    /// Build per-phase enemy breakdowns from ENCOUNTER_PHASE_CHANGE events
+    fn build_phase_breakdowns(&self, enc_start_secs: f64, enc_end_secs: f64, boss_names: &[String]) -> Vec<PhaseBreakdown> {
+        // Only build phases if we actually saw phase change events
+        if self.phase_transitions.is_empty() {
+            return Vec::new();
+        }
+
+        let boss_names_lower: Vec<String> = boss_names.iter().map(|n| n.to_lowercase()).collect();
+
+        // Collect all unique phases in order
+        let mut phase_ids: Vec<u32> = Vec::new();
+        // Phase 1 is implicit at the start
+        phase_ids.push(1);
+        for &(_, phase_id) in &self.phase_transitions {
+            if !phase_ids.contains(&phase_id) {
+                phase_ids.push(phase_id);
+            }
+        }
+
+        // Build time ranges for each phase
+        let mut phases: Vec<PhaseBreakdown> = Vec::new();
+        for (idx, &phase_id) in phase_ids.iter().enumerate() {
+            let start = if phase_id == 1 {
+                0.0
+            } else {
+                self.phase_transitions.iter()
+                    .find(|&&(_, pid)| pid == phase_id)
+                    .map(|&(ts, _)| ts - enc_start_secs)
+                    .unwrap_or(0.0)
+            };
+
+            let end = if idx + 1 < phase_ids.len() {
+                let next_phase = phase_ids[idx + 1];
+                self.phase_transitions.iter()
+                    .find(|&&(_, pid)| pid == next_phase)
+                    .map(|&(ts, _)| ts - enc_start_secs)
+                    .unwrap_or(enc_end_secs - enc_start_secs)
+            } else {
+                enc_end_secs - enc_start_secs
+            };
+
+            // Build enemy breakdowns for this phase
+            let enemies = if let Some(phase_targets) = self.phase_damage_targets.get(&phase_id) {
+                let mut breakdowns: Vec<EnemyBreakdown> = phase_targets.iter().map(|(target_name, &total_damage)| {
+                    let name_lower = target_name.to_lowercase();
+                    let creature_type = self.phase_creature_types
+                        .get(&phase_id)
+                        .and_then(|m| m.get(target_name))
+                        .map(|s| s.as_str())
+                        .unwrap_or("Unknown");
+                    let mob_type = if creature_type == "Pet" {
+                        "Pet".to_string()
+                    } else if boss_names_lower.iter().any(|bn| name_lower.contains(bn) || bn.contains(&name_lower)) {
+                        "Boss".to_string()
+                    } else {
+                        "Trash".to_string()
+                    };
+                    EnemyBreakdown {
+                        target_name: target_name.clone(),
+                        total_damage,
+                        kill_count: 0,
+                        mob_type,
+                        players: Vec::new(), // No per-player breakdown for phases
+                    }
+                }).collect();
+                breakdowns.sort_by(|a, b| b.total_damage.cmp(&a.total_damage));
+                breakdowns
+            } else {
+                Vec::new()
+            };
+
+            phases.push(PhaseBreakdown {
+                phase_id,
+                start_time_secs: start,
+                end_time_secs: end,
+                enemy_breakdowns: enemies,
+            });
+        }
+
+        phases
+    }
 }
 
 /// Process a single combat event
@@ -728,6 +852,19 @@ fn process_combat_event(
                         else if dest_guid.starts_with("Pet-") { "Pet" }
                         else { "Other" };
                     tracker.creature_types.entry(dest_name.clone()).or_insert_with(|| guid_type.to_string());
+                    // Track creature HP from advanced info (fields 14=currentHP, 15=maxHP)
+                    let c_hp: u64 = fields.get(14).and_then(|s| s.parse().ok()).unwrap_or(0);
+                    let m_hp: u64 = fields.get(15).and_then(|s| s.parse().ok()).unwrap_or(0);
+                    if m_hp > 0 {
+                        tracker.last_creature_hp.insert(dest_name.clone(), (c_hp, m_hp));
+                    }
+                    // Track per-phase damage to enemies
+                    *tracker.phase_damage_targets
+                        .entry(tracker.current_phase).or_default()
+                        .entry(dest_name.clone()).or_default() += amount;
+                    tracker.phase_creature_types
+                        .entry(tracker.current_phase).or_default()
+                        .entry(dest_name.clone()).or_insert_with(|| guid_type.to_string());
                 }
             }
 
@@ -768,6 +905,12 @@ fn process_combat_event(
                     .entry(source_guid.clone()).or_default()
                     .entry(0u64).or_default()
                     .entry(dest_name.clone()).or_default() += amount;
+                // Track per-phase damage to enemies
+                if !dest_guid.starts_with("Player-") && !dest_name.is_empty() {
+                    *tracker.phase_damage_targets
+                        .entry(tracker.current_phase).or_default()
+                        .entry(dest_name.clone()).or_default() += amount;
+                }
             }
 
             if dest_guid.starts_with("Player-") && amount > 0 {
