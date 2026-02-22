@@ -1373,6 +1373,12 @@
       return map[className] || 'var(--text-primary)';
     }
 
+    function roleIcon(role) {
+      if (role === 'tank') return '<span title="Tank" style="font-size:12px;margin-right:4px">🛡️</span>';
+      if (role === 'healer') return '<span title="Healer" style="font-size:12px;margin-right:4px">💚</span>';
+      return '<span title="DPS" style="font-size:12px;margin-right:4px">⚔️</span>';
+    }
+
     // ========== Navigation ==========
     function navigateTo(view, params = {}) {
       currentView = view;
@@ -1469,17 +1475,18 @@
           return;
         }
 
-        const kills = summary.encounters.filter(e => e.success).length;
-        const wipes = summary.encounters.filter(e => !e.success).length;
+        const bossEncs = summary.encounters.filter(e => e.encounter_type !== 'trash');
+        const kills = bossEncs.filter(e => e.success).length;
+        const wipes = bossEncs.filter(e => !e.success).length;
         const zones = [...new Set(summary.zone_changes.map(z => z.zone_name))];
 
         app.innerHTML = `
       <a class="back-btn" onclick="navigateTo('logs')">← Back to logs</a>
       <h1 class="page-title">${zones.join(', ') || filename}</h1>
-      <p class="page-subtitle">${summary.encounters.length} encounters — ${kills} kills, ${wipes} wipes</p>
+      <p class="page-subtitle">${bossEncs.length} encounters — ${kills} kills, ${wipes} wipes</p>
 
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-value">${summary.encounters.length}</div><div class="stat-label">Encounters</div></div>
+        <div class="stat-card"><div class="stat-value">${bossEncs.length}</div><div class="stat-label">Encounters</div></div>
         <div class="stat-card"><div class="stat-value" style="color:var(--accent-green)">${kills}</div><div class="stat-label">Kills</div></div>
         <div class="stat-card"><div class="stat-value" style="color:var(--accent-red)">${wipes}</div><div class="stat-label">Wipes</div></div>
         <div class="stat-card"><div class="stat-value">${zones.length}</div><div class="stat-label">Zones</div></div>
@@ -1550,8 +1557,8 @@
               sessions.forEach((session, si) => {
                 const sessionStart = session[0].start_time;
                 const sessionEnd = session[session.length - 1].end_time || session[session.length - 1].start_time;
-                const sKills = session.filter(e => e.success).length;
-                const sWipes = session.filter(e => !e.success).length;
+                const sKills = session.filter(e => e.success && e.encounter_type !== 'trash').length;
+                const sWipes = session.filter(e => !e.success && e.encounter_type !== 'trash').length;
                 const sessionZone = zoneFor(session[0]);
                 const sessionDiff = session[0].difficulty_name;
 
@@ -1581,30 +1588,52 @@
               </div>
             `;
 
-                // Group by boss name (preserve order of first appearance)
+                // Separate bosses and trash, render in chronological order
                 const bossOrder = [];
                 const bossMap = {};
+                const renderOrder = [];
+
                 session.forEach(enc => {
-                  if (!bossMap[enc.name]) {
-                    bossMap[enc.name] = [];
-                    bossOrder.push(enc.name);
+                  if (enc.encounter_type === 'trash') {
+                    renderOrder.push({ type: 'trash', enc });
+                  } else {
+                    if (!bossMap[enc.name]) {
+                      bossMap[enc.name] = [];
+                      bossOrder.push(enc.name);
+                      renderOrder.push({ type: 'boss', name: enc.name });
+                    }
+                    bossMap[enc.name].push(enc);
                   }
-                  bossMap[enc.name].push(enc);
                 });
 
-                bossOrder.forEach((bossName, bi) => {
-                  const pulls = bossMap[bossName];
-                  const killPull = pulls.find(p => p.success);
-                  const killCount = pulls.filter(p => p.success).length;
-                  const wipeCount = pulls.filter(p => !p.success).length;
-                  const bestTime = Math.min(...pulls.filter(p => p.duration_secs > 0).map(p => p.duration_secs));
-                  const diff = pulls[0].difficulty_name;
-                  const groupSize = pulls[0].group_size;
+                renderOrder.forEach((item, bi) => {
+                  if (item.type === 'trash') {
+                    const t = item.enc;
+                    const totalDmg = t.players.reduce((s, p) => s + p.damage_done, 0);
+                    html += `
+                <div class="animate-in" style="animation-delay:${bi * 30}ms;cursor:pointer;grid-column:1/-1;padding:8px 16px;border-radius:8px;border:1px dashed var(--border-color);opacity:0.6;display:flex;align-items:center;gap:16px;font-size:13px;color:var(--text-secondary);transition:all 0.15s"
+                  onclick="navigateTo('encounter', {encounter: currentSummary.encounters[${t.index}]})"
+                  onmouseover="this.style.opacity='0.9';this.style.borderColor='var(--border-glow)'"
+                  onmouseout="this.style.opacity='0.6';this.style.borderColor='var(--border-color)'">
+                  <span>🗑️ ${t.name}</span>
+                  <span style="color:var(--text-muted)">⏱ ${formatDuration(t.duration_secs)}</span>
+                  <span style="color:var(--text-muted)">⚔️ ${formatNumber(totalDmg)}</span>
+                  ${t.deaths.length > 0 ? `<span style="color:var(--text-muted)">💀 ${t.deaths.length}</span>` : ''}
+                  <span style="color:var(--text-muted)">${t.players.length} players</span>
+                </div>
+              `;
+                  } else {
+                    const pulls = bossMap[item.name];
+                    const killCount = pulls.filter(p => p.success).length;
+                    const wipeCount = pulls.filter(p => !p.success).length;
+                    const bestTime = Math.min(...pulls.filter(p => p.duration_secs > 0).map(p => p.duration_secs));
+                    const diff = pulls[0].difficulty_name;
+                    const groupSize = pulls[0].group_size;
 
-                  html += `
+                    html += `
                 <div class="card animate-in" style="animation-delay:${bi * 30}ms;cursor:default">
                   <div class="card-header" style="margin-bottom:10px">
-                    <div class="card-title">⚔️ ${bossName}</div>
+                    <div class="card-title">⚔️ ${item.name}</div>
                     <div style="display:flex;gap:6px;align-items:center">
                       ${killCount > 0 ? `<span class="encounter-result kill">✓ ${killCount > 1 ? killCount + ' Kills' : 'Kill'}</span>` : ''}
                       ${wipeCount > 0 ? `<span class="encounter-result wipe">✗ ${wipeCount} ${wipeCount === 1 ? 'Wipe' : 'Wipes'}</span>` : ''}
@@ -1633,13 +1662,14 @@
                   </div>
                 </div>
               `;
+                  }
                 });
               });
             }
 
             return html;
           })()}</div>
-    `;
+      `;
       } catch (e) {
         app.innerHTML = `<div class="empty-state"><div class="icon">❌</div><div class="title">Error parsing log</div><p>${e.message}</p></div>`;
       }
@@ -1650,7 +1680,7 @@
       const app = document.getElementById('app');
       updateBreadcrumb([
         { label: 'Log Files', onclick: "navigateTo('logs')" },
-        { label: currentFilename, onclick: `navigateTo('encounters', {filename: '${currentFilename}'})` },
+        { label: currentFilename, onclick: `navigateTo('encounters', { filename: '${currentFilename}' })` },
         { label: enc.name }
       ]);
 
@@ -1658,9 +1688,9 @@
       const maxHeal = Math.max(...enc.players.map(p => p.healing_done), 1);
 
       app.innerHTML = `
-    <a class="back-btn" onclick="navigateTo('encounters', {filename: '${currentFilename}'})">← Back to encounters</a>
+      <a class="back-btn" onclick="navigateTo('encounters', {filename: '${currentFilename}'})">← Back to encounters</a>
 
-    ${(() => {
+        ${(() => {
           // Only show timeline for raid encounters
           if (enc.encounter_type === 'mythic_plus' || !currentSummary) return '';
 
@@ -1706,28 +1736,29 @@
             const isCurrent = e.index === enc.index;
             const abbr = e.name.length > 14 ? e.name.substring(0, 12) + '..' : e.name;
             const bg = isCurrent
-              ? (e.success ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)')
+              ? (e.encounter_type === 'trash' ? 'rgba(100,100,100,0.15)' : e.success ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)')
               : 'var(--bg-card)';
             const border = isCurrent
-              ? (e.success ? 'var(--accent-green)' : 'var(--accent-red)')
+              ? (e.encounter_type === 'trash' ? 'var(--text-muted)' : e.success ? 'var(--accent-green)' : 'var(--accent-red)')
               : 'var(--border-color)';
-            const glow = isCurrent ? 'box-shadow:0 0 8px ' + (e.success ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)') + ';' : '';
+            const glow = isCurrent ? 'box-shadow:0 0 8px ' + (e.encounter_type === 'trash' ? 'rgba(100,100,100,0.3)' : e.success ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)') + ';' : '';
             return `<div onclick="navigateTo('encounter', {encounter: currentSummary.encounters[${e.index}]})"
                 style="padding:6px 10px;border-radius:8px;cursor:pointer;border:1.5px solid ${border};background:${bg};${glow}transition:all 0.15s;white-space:nowrap;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:70px"
                 onmouseover="if(!${isCurrent})this.style.borderColor='var(--border-glow)'"
                 onmouseout="if(!${isCurrent})this.style.borderColor='var(--border-color)'">
-                <span style="font-weight:600;color:${e.success ? 'var(--accent-green)' : 'var(--accent-red)'}">${e.success ? '✓ Kill' : '✗ P' + pullNum}${!e.success && e.boss_hp_pct != null ? ' ' + e.boss_hp_pct.toFixed(1) + '%' : ''}</span>
+                <span style="font-weight:600;color:${e.encounter_type === 'trash' ? 'var(--text-muted)' : e.success ? 'var(--accent-green)' : 'var(--accent-red)'}">${e.encounter_type === 'trash' ? '🗑️' : e.success ? '✓ Kill' : '✗ P' + pullNum}${!e.success && e.encounter_type !== 'trash' && e.boss_hp_pct != null ? ' ' + e.boss_hp_pct.toFixed(1) + '%' : ''}</span>
                 <span style="color:var(--text-secondary);font-size:11px">${abbr}</span>
                 <span style="color:var(--text-muted);font-size:10px">${formatDuration(e.duration_secs)}</span>
               </div>`;
           }).join('')}
           </div>
         </div>`;
-        })()}
+        })()
+        }
 
-    <h1 class="page-title">${enc.encounter_type === 'mythic_plus' ? '🗝️' : '⚔️'} ${enc.name}</h1>
+    <h1 class="page-title">${enc.encounter_type === 'mythic_plus' ? '🗝️' : enc.encounter_type === 'trash' ? '🗑️' : '⚔️'} ${enc.name}</h1>
     <p class="page-subtitle">
-      <span class="encounter-result ${enc.success ? 'kill' : 'wipe'}" style="font-size:13px">${enc.encounter_type === 'mythic_plus' ? (enc.success ? '✓ Timed' : '✗ Depleted') : (enc.success ? '✓ Kill' : '✗ Wipe')}</span>
+      ${enc.encounter_type !== 'trash' ? `<span class="encounter-result ${enc.success ? 'kill' : 'wipe'}" style="font-size:13px">${enc.encounter_type === 'mythic_plus' ? (enc.success ? '✓ Timed' : '✗ Depleted') : (enc.success ? '✓ Kill' : '✗ Wipe')}</span>` : ''}
       &nbsp; ${formatDuration(enc.duration_secs)} — ${enc.difficulty_name} — ${enc.group_size} players
     </p>
 
@@ -1757,7 +1788,8 @@
       </div>
       <div id="pull-bar"></div>
     </div>
-    ` : ''}
+    ` : ''
+        }
 
     <div class="tabs">
       <button class="tab${(window.__currentTab || 'damage') === 'damage' ? ' active' : ''}" onclick="showTab('damage', this)">⚔️ Damage Done</button>
@@ -1771,7 +1803,7 @@
     </div>
 
     <div id="tab-content"></div>
-  `;
+    `;
 
       window.__currentEnc = enc;
       window.__maxDmg = maxDmg;
@@ -2257,7 +2289,7 @@
         const pid = `dmg-${p.guid.replace(/[^a-zA-Z0-9]/g, '')}`;
         return `<tr class="animate-in player-row" style="animation-delay:${i * 20}ms;cursor:pointer" onclick="togglePlayerDetail('${pid}')">
       <td class="rank ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}</td>
-      <td><strong style="color:${classColor(p.class_name)}">${p.name}</strong>${p.spec_name ? `<span style="color:${classColor(p.class_name)};opacity:0.6;font-size:11px;margin-left:6px">${p.spec_name} ${p.class_name}</span>` : ''}</td>
+      <td>${roleIcon(p.role)}<strong style="color:${classColor(p.class_name)}">${p.name}</strong>${p.spec_name ? `<span style="color:${classColor(p.class_name)};opacity:0.6;font-size:11px;margin-left:6px">${p.spec_name} ${p.class_name}</span>` : ''}</td>
       <td class="num">${formatNumber(p.damage_done)}</td>
       <td class="bar-cell">
         <div class="bar-container">
@@ -2344,7 +2376,7 @@
       if (!abilities || abilities.length === 0) return '<div style="padding:12px;color:var(--text-muted)">No ability data</div>';
       const maxAbility = Math.max(...abilities.map(a => a.total_amount), 1);
       return `<table style="width:100%;border-collapse:collapse">
-        ${abilities.map(a => {
+      ${abilities.map(a => {
         const pct = totalAmount > 0 ? (a.total_amount / totalAmount * 100).toFixed(1) : '0.0';
         const barW = (a.total_amount / maxAbility * 100).toFixed(1);
         const hasTargets = a.targets && a.targets.length > 0;
@@ -2374,8 +2406,9 @@
         }).join('')}
             </table>
           </td></tr>` : ''}`;
-      }).join('')}
-      </table>`;
+      }).join('')
+        }
+      </table > `;
     }
 
     function renderTargetBreakdown(abilities, totalAmount) {
@@ -2469,7 +2502,7 @@
         <div id="${pid}-targets" class="ability-panel" style="display:none">${renderTargetBreakdown(abilities, p.damage_taken)}</div>
       </td>
     </tr>`;
-      }).join('')}</tbody></table>`;
+      }).join('')}</tbody></table > `;
     }
 
     function renderDeathsTab(enc) {
@@ -2487,13 +2520,13 @@
         recapEvents.sort((a, b) => b.time_into_fight_secs - a.time_into_fight_secs);
 
         return `
-    <div class="death-item animate-in" style="animation-delay:${i * 40}ms">
-      <div class="death-header" onclick="toggleRecap(${i}, this)">
-        <span class="expand-icon">${recapEvents.length > 0 ? '▶' : ''}</span>
-        <div class="death-time">${formatDuration(d.time_into_fight_secs)}</div>
-        <div class="death-player">💀 ${d.player_name}</div>
-        <div class="death-source">Killed by <strong>${d.killing_blow_source || 'Unknown'}</strong> with <em>${d.killing_blow_spell || 'Unknown'}</em></div>
-      </div>
+      <div class="death-item animate-in" style="animation-delay:${i * 40}ms">
+        <div class="death-header" onclick="toggleRecap(${i}, this)">
+          <span class="expand-icon">${recapEvents.length > 0 ? '▶' : ''}</span>
+          <div class="death-time">${formatDuration(d.time_into_fight_secs)}</div>
+          <div class="death-player">💀 ${d.player_name}</div>
+          <div class="death-source">Killed by <strong>${d.killing_blow_source || 'Unknown'}</strong> with <em>${d.killing_blow_spell || 'Unknown'}</em></div>
+        </div>
       ${recapEvents.length > 0 || d.killing_blow_spell ? `
       <div class="death-recap" id="recap-${i}">
         ${d.killing_blow_spell ? `
@@ -2525,9 +2558,10 @@
           </div>`;
         }).join('')}
       </div>
-      ` : ''}
-    </div>
-  `}).join('');
+      ` : ''
+          }
+    </div >
+      `}).join('');
     }
 
     function toggleRecap(index, el) {
@@ -2561,7 +2595,7 @@
       window.__abilityPlayer = selPlayer.guid;
 
       return `
-        <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap">
           <label style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">Select Player</label>
           <select id="ability-player-select" onchange="onAbilityPlayerChange(this.value)"
             style="padding:8px 14px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:${classColor(selPlayer.class_name)};font-size:14px;min-width:260px;cursor:pointer">
@@ -2576,8 +2610,8 @@
               oninput="onAbilitySearchChange(this.value)"
               style="width:100%;padding:8px 14px 8px 32px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:14px;box-sizing:border-box">
           </div>
-        </div>
-        <div id="ability-list">${renderAbilityList(selPlayer)}</div>`;
+        </div >
+      <div id="ability-list">${renderAbilityList(selPlayer)}</div>`;
     }
 
     function onAbilityPlayerChange(guid) {
@@ -2625,7 +2659,7 @@
         </div>
       </td>
     </tr>`;
-      }).join('')}</tbody></table>`;
+      }).join('')}</tbody></table > `;
     }
 
     // ========== Utility ==========
@@ -2633,7 +2667,7 @@
       if (!secs || secs < 0) return '0:00';
       const m = Math.floor(secs / 60);
       const s = Math.floor(secs % 60);
-      return `${m}:${s.toString().padStart(2, '0')}`;
+      return `${m}:${s.toString().padStart(2, '0')} `;
     }
 
     function formatNumber(n) {
@@ -2829,14 +2863,14 @@
         return '<div class="empty-state"><div class="title">No boss data</div></div>';
       }
       return enc.boss_encounters.map((b, i) => `
-    <div class="death-item animate-in" style="animation-delay:${i * 40}ms">
+      <div class="death-item animate-in" style="animation-delay:${i * 40}ms">
       <div class="death-time">${formatDuration(b.duration_secs)}</div>
       <div class="death-player" style="color:${b.success ? 'var(--accent-green)' : 'var(--accent-red)'}">
         ${b.success ? '✓' : '✗'} ${b.name}
       </div>
       <div class="death-source">${b.success ? 'Killed' : 'Wipe'} — ${formatDuration(b.duration_secs)} fight</div>
-    </div>
-  `).join('');
+    </div >
+      `).join('');
     }
 
     function renderBuffUptimeTab(enc) {
@@ -2948,7 +2982,7 @@
         </select>
         <input type="text" id="buff-search" placeholder="🔍 Search buffs..." value="${searchTerm}" oninput="searchBuffs(this.value)"
           style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);border-radius:8px;padding:6px 12px;font-size:14px;outline:none;min-width:180px;flex:1;max-width:300px" />
-      </div>
+      </div >
 
       ${filteredBuffs.length === 0 ? `<div class="empty-state"><div class="title">${playerBuffs.length > 0 ? 'No buffs match your search' : 'No buff data for this player'}</div></div>` : `
       <table class="data-table">
@@ -3091,7 +3125,7 @@
       // Boss HP section
       const hasBossHp = enc.boss_hp_timeline && enc.boss_hp_timeline.length > 0;
       const bossSection = hasBossHp ? `
-        <div class="replay-boss-hp">
+      <div class="replay-boss-hp">
           <div class="replay-boss-hp-label">BOSS HP — ${enc.name}</div>
           <div class="replay-boss-hp-bar">
             <div class="replay-boss-hp-fill" id="replay-boss-fill" style="width:100%"></div>
@@ -3105,7 +3139,7 @@
         const color = classColor(info.class_name);
         const safeId = guid.replace(/[^a-zA-Z0-9]/g, '_');
         return `
-          <div class="raid-frame" id="rf-${safeId}">
+      <div class="raid-frame" id="rf-${safeId}">
             <div class="raid-frame-bg" style="background:${color}"></div>
             <div class="raid-frame-fill" id="rf-fill-${safeId}" style="width:100%;background:${color};opacity:0.7"></div>
             <div class="raid-frame-deficit" id="rf-def-${safeId}" style="width:0%"></div>
@@ -3118,13 +3152,13 @@
 
       // Map section
       const mapSection = hasPositions ? `
-        <div class="replay-map-wrap">
+      <div class="replay-map-wrap">
           <div class="replay-map-label">Position Map</div>
           <canvas class="replay-map-canvas" id="replay-map"></canvas>
         </div>` : '';
 
       return `
-        <div class="replay-container">
+      <div class="replay-container">
           <div class="replay-controls">
             <button id="replay-playpause" title="Play / Pause">▶</button>
             <input type="range" class="replay-slider" id="replay-slider" min="0" max="${(enc.duration_secs * 10).toFixed(0)}" value="0" step="1" />
@@ -3133,14 +3167,14 @@
           </div>
           <div class="replay-death-markers" id="replay-markers">${deathMarkers}</div>
           ${bossSection}
-          <div class="replay-map-section">
-            <div class="replay-raid-frames">
-              <div class="replay-raid-label">Party / Raid Frames</div>
-              <div class="replay-frames-grid">${raidFramesHtml}</div>
-            </div>
-            ${mapSection}
-          </div>
-        </div>`;
+    <div class="replay-map-section">
+      <div class="replay-raid-frames">
+        <div class="replay-raid-label">Party / Raid Frames</div>
+        <div class="replay-frames-grid">${raidFramesHtml}</div>
+      </div>
+      ${mapSection}
+    </div>
+        </div > `;
     }
 
     function initReplayControls(enc) {

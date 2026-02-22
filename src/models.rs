@@ -113,6 +113,7 @@ pub struct PlayerSummary {
     pub name: String,
     pub class_name: String,
     pub spec_name: String,
+    pub role: String,
     pub damage_done: u64,
     pub healing_done: u64,
     pub damage_taken: u64,

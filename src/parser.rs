@@ -57,6 +57,16 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
     let mut standalone_group_size: u32 = 0;
     let mut standalone_tracker = EventTracker::new();
 
+    // Raid trash tracking (between boss encounters)
+    let mut trash_tracker = EventTracker::new();
+    let mut trash_start_secs: f64 = 0.0;
+    let mut trash_start_str = String::new();
+    let mut trash_has_combat = false;
+    let mut trash_difficulty: u32 = 0;
+    let mut trash_group_size: u32 = 0;
+    let mut trash_index: u32 = 0;
+    let mut timestamp_secs_last: Option<f64> = None;
+
     for line_result in reader.lines() {
         let line = match line_result {
             Ok(l) => l,
@@ -75,6 +85,7 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
         };
 
         let timestamp_secs = parse_timestamp_to_secs(timestamp_str);
+        timestamp_secs_last = Some(timestamp_secs);
         let fields: Vec<&str> = parse_csv_fields(event_part);
 
         if fields.is_empty() {
@@ -99,7 +110,8 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                         if spec_id > 0 {
                             tracker.player_specs.insert(guid.clone(), spec_id);
                             segment_tracker.player_specs.insert(guid.clone(), spec_id);
-                            standalone_tracker.player_specs.insert(guid, spec_id);
+                            standalone_tracker.player_specs.insert(guid.clone(), spec_id);
+                            trash_tracker.player_specs.insert(guid, spec_id);
                         }
                     }
                 }
@@ -244,6 +256,45 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                     boss_name = enc_name;
                     boss_id = enc_id;
                 } else {
+                    // Flush any accumulated trash before this boss
+                    if trash_has_combat {
+                        let trash_duration = timestamp_secs - trash_start_secs;
+                        if trash_duration > 0.5 {
+                            trash_index += 1;
+                            let players = trash_tracker.build_player_summaries(trash_duration);
+                            encounters.push(EncounterSummary {
+                                index: encounters.len(),
+                                encounter_id: 0,
+                                name: format!("Trash {}", trash_index),
+                                difficulty_id: if difficulty > 0 { difficulty } else { trash_difficulty },
+                                difficulty_name: difficulty_name(if difficulty > 0 { difficulty } else { trash_difficulty }),
+                                group_size: if group_size > 0 { group_size } else { trash_group_size },
+                                success: true,
+                                duration_secs: trash_duration,
+                                start_time: trash_start_str.clone(),
+                                end_time: timestamp_str.to_string(),
+                                key_level: None,
+                                affixes: Vec::new(),
+                                encounter_type: "trash".to_string(),
+                                boss_encounters: Vec::new(),
+                                players,
+                                deaths: trash_tracker.death_events.clone(),
+                                segments: Vec::new(),
+                                buff_uptimes: trash_tracker.build_buff_uptimes(trash_duration),
+                                enemy_breakdowns: trash_tracker.build_enemy_breakdowns(&[]),
+                                boss_hp_pct: None,
+                                boss_max_hp: None,
+                                phases: Vec::new(),
+                                time_bucketed_player_damage: HashMap::new(),
+                                boss_hp_timeline: Vec::new(),
+                                replay_timeline: trash_tracker.build_hp_timeline(trash_duration),
+                                boss_positions: Vec::new(),
+                            });
+                        }
+                    }
+                    trash_tracker = EventTracker::new_with_context(&tracker);
+                    trash_has_combat = false;
+
                     // Standalone boss encounter (raid or non-M+ dungeon)
                     standalone_boss = true;
                     standalone_start_time = Some(timestamp_secs);
@@ -352,6 +403,13 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                     });
 
                     standalone_boss = false;
+                    // Start a new trash segment after this boss
+                    trash_tracker = EventTracker::new_with_context(&tracker);
+                    trash_start_secs = timestamp_secs;
+                    trash_start_str = timestamp_str.to_string();
+                    trash_has_combat = false;
+                    trash_difficulty = standalone_difficulty;
+                    trash_group_size = standalone_group_size;
                 }
             }
             _ => {
@@ -366,8 +424,63 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                     // During standalone boss encounter
                     process_combat_event(event_type, &fields, timestamp_str, timestamp_secs,
                         standalone_start_time.unwrap_or(0.0), &mut standalone_tracker);
+                } else if !in_key {
+                    // Between encounters (trash) — track if it looks like combat
+                    if trash_start_secs == 0.0 {
+                        trash_start_secs = timestamp_secs;
+                        trash_start_str = timestamp_str.to_string();
+                    }
+                    let is_combat = matches!(event_type,
+                        "SPELL_DAMAGE" | "SPELL_PERIODIC_DAMAGE" | "RANGE_DAMAGE" |
+                        "SWING_DAMAGE" | "SPELL_HEAL" | "SPELL_PERIODIC_HEAL" |
+                        "SPELL_AURA_APPLIED" | "SPELL_AURA_REMOVED" | "SPELL_AURA_REFRESH" |
+                        "UNIT_DIED" | "SPELL_CAST_SUCCESS" | "SPELL_DAMAGE_SUPPORT"
+                    );
+                    if is_combat {
+                        trash_has_combat = true;
+                    }
+                    process_combat_event(event_type, &fields, timestamp_str, timestamp_secs,
+                        trash_start_secs, &mut trash_tracker);
                 }
             }
+        }
+    }
+
+    // Flush any trailing trash at the end of the log
+    if trash_has_combat && !in_key {
+        let last_ts = timestamp_secs_last.unwrap_or(trash_start_secs);
+        let trash_duration = last_ts - trash_start_secs;
+        if trash_duration > 0.5 {
+            trash_index += 1;
+            let players = trash_tracker.build_player_summaries(trash_duration);
+            encounters.push(EncounterSummary {
+                index: encounters.len(),
+                encounter_id: 0,
+                name: format!("Trash {}", trash_index),
+                difficulty_id: trash_difficulty,
+                difficulty_name: difficulty_name(trash_difficulty),
+                group_size: trash_group_size,
+                success: true,
+                duration_secs: trash_duration,
+                start_time: trash_start_str.clone(),
+                end_time: String::new(),
+                key_level: None,
+                affixes: Vec::new(),
+                encounter_type: "trash".to_string(),
+                boss_encounters: Vec::new(),
+                players,
+                deaths: trash_tracker.death_events.clone(),
+                segments: Vec::new(),
+                buff_uptimes: trash_tracker.build_buff_uptimes(trash_duration),
+                enemy_breakdowns: trash_tracker.build_enemy_breakdowns(&[]),
+                boss_hp_pct: None,
+                boss_max_hp: None,
+                phases: Vec::new(),
+                time_bucketed_player_damage: HashMap::new(),
+                boss_hp_timeline: Vec::new(),
+                replay_timeline: trash_tracker.build_hp_timeline(trash_duration),
+                boss_positions: Vec::new(),
+            });
         }
     }
 
@@ -539,10 +652,10 @@ impl EventTracker {
                 continue;
             }
             let name = self.player_names.get(guid).cloned().unwrap_or_else(|| "Unknown".to_string());
-            let (class_name, spec_name) = self.player_specs.get(guid)
+            let (class_name, spec_name, role) = self.player_specs.get(guid)
                 .and_then(|id| spec_info(*id))
-                .map(|(c, s, _)| (c.to_string(), s.to_string()))
-                .unwrap_or_else(|| (String::new(), String::new()));
+                .map(|(c, s, r)| (c.to_string(), s.to_string(), r.to_string()))
+                .unwrap_or_else(|| (String::new(), String::new(), String::new()));
 
             let mut total_damage: u64 = 0;
             let mut damage_abilities: Vec<AbilityBreakdown> = Vec::new();
@@ -634,6 +747,7 @@ impl EventTracker {
                 name,
                 class_name,
                 spec_name,
+                role,
                 damage_done: total_damage,
                 healing_done: total_healing,
                 damage_taken: total_taken,
@@ -900,10 +1014,10 @@ impl EventTracker {
             let mut players: Vec<PlayerSummary> = all_guids.into_iter()
                 .map(|guid| {
                     let name = self.player_names.get(&guid).cloned().unwrap_or_else(|| guid.clone());
-                    let (class_name, spec_name) = self.player_specs.get(&guid)
+                    let (class_name, spec_name, role) = self.player_specs.get(&guid)
                         .and_then(|id| spec_info(*id))
-                        .map(|(c, s, _)| (c.to_string(), s.to_string()))
-                        .unwrap_or_else(|| (String::new(), String::new()));
+                        .map(|(c, s, r)| (c.to_string(), s.to_string(), r.to_string()))
+                        .unwrap_or_else(|| (String::new(), String::new(), String::new()));
                     let dmg = player_damage.get(&guid).copied().unwrap_or(0);
                     let heal = player_healing.get(&guid).copied().unwrap_or(0);
                     // Build damage abilities for this player in this pull
@@ -972,6 +1086,7 @@ impl EventTracker {
                         name,
                         class_name,
                         spec_name,
+                        role,
                         damage_done: dmg,
                         healing_done: heal,
                         damage_taken: total_taken,
