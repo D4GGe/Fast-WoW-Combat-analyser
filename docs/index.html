@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fast WoW Combat Analyser — Instant Offline Log Analysis</title>
+    <meta name="description"
+        content="Instant, offline combat log analysis for World of Warcraft. No uploads. No delays. Just open and analyze." />
+    <link rel="icon" type="image/png" href="logo.png" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet" />
+    <style>
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --border-card: rgba(99, 102, 241, 0.15);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #6366f1;
+            --accent-glow: rgba(99, 102, 241, 0.4);
+            --accent-secondary: #a78bfa;
+            --success: #34d399;
+            --warning: #fbbf24;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        /* Ambient background glow */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 80%, rgba(167, 139, 250, 0.04) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* ── Navigation ── */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            padding: 16px 0;
+            background: rgba(10, 14, 23, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(99, 102, 241, 0.08);
+            transition: background 0.3s;
+        }
+
+        nav .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 1rem;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .nav-brand img {
+            height: 28px;
+            border-radius: 4px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 28px;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-primary);
+        }
+
+        /* ── Hero Section ── */
+        .hero {
+            padding: 160px 0 100px;
+            text-align: center;
+        }
+
+        .hero-logo {
+            width: 280px;
+            max-width: 70%;
+            margin-bottom: 32px;
+            filter: drop-shadow(0 0 40px var(--accent-glow));
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-10px);
+            }
+        }
+
+        .hero h1 {
+            font-size: clamp(2rem, 5vw, 3.2rem);
+            font-weight: 900;
+            letter-spacing: -0.03em;
+            line-height: 1.15;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            font-size: 1.15rem;
+            color: var(--text-secondary);
+            max-width: 520px;
+            margin: 0 auto 40px;
+        }
+
+        .hero-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 32px;
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            color: #fff;
+            font-weight: 600;
+            font-size: 1rem;
+            border-radius: 12px;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 24px var(--accent-glow);
+        }
+
+        .hero-cta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px var(--accent-glow);
+        }
+
+        /* ── Section shared styles ── */
+        section {
+            padding: 80px 0;
+        }
+
+        .section-label {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-size: clamp(1.5rem, 3vw, 2rem);
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 16px;
+        }
+
+        .section-subtitle {
+            font-size: 1.05rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin-bottom: 48px;
+        }
+
+        /* ── Why Section ── */
+        .why-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 16px;
+            padding: 40px;
+            backdrop-filter: blur(12px);
+        }
+
+        .why-content p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            margin-bottom: 16px;
+        }
+
+        .why-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .why-content strong {
+            color: var(--text-primary);
+        }
+
+        .why-content code {
+            background: rgba(99, 102, 241, 0.15);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: var(--accent-secondary);
+        }
+
+        /* ── Features Grid ── */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 20px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 16px;
+            padding: 28px;
+            backdrop-filter: blur(12px);
+            transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(99, 102, 241, 0.35);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .feature-icon {
+            font-size: 1.6rem;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .feature-card h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .feature-card p {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* ── Demo Section ── */
+        .demo-container {
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid var(--border-card);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        }
+
+        .demo-container img {
+            width: 100%;
+            display: block;
+        }
+
+        /* ── Getting Started ── */
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-top: 32px;
+        }
+
+        .step-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 16px;
+            padding: 28px;
+            backdrop-filter: blur(12px);
+            position: relative;
+        }
+
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.85rem;
+            margin-bottom: 14px;
+        }
+
+        .step-card h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .step-card p,
+        .step-card code {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .step-card code {
+            background: rgba(99, 102, 241, 0.15);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--accent-secondary);
+        }
+
+        /* ── Code Block ── */
+        .code-block {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 24px;
+            overflow-x: auto;
+        }
+
+        .code-block pre {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.8;
+        }
+
+        .code-block .comment {
+            color: var(--text-muted);
+        }
+
+        .code-block .cmd {
+            color: var(--success);
+        }
+
+        /* ── Tech Stack ── */
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .tech-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(12px);
+        }
+
+        .tech-item h3 {
+            font-size: 0.9rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .tech-item p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* ── Footer ── */
+        footer {
+            padding: 48px 0;
+            text-align: center;
+            border-top: 1px solid rgba(99, 102, 241, 0.08);
+        }
+
+        footer p {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        /* ── Fade-in animations ── */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(24px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 640px) {
+            .hero {
+                padding: 130px 0 60px;
+            }
+
+            .hero-logo {
+                width: 200px;
+            }
+
+            .nav-links {
+                gap: 16px;
+            }
+
+            .nav-links a {
+                font-size: 0.8rem;
+            }
+
+            section {
+                padding: 60px 0;
+            }
+
+            .why-content {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav>
+        <div class="container">
+            <a href="#" class="nav-brand">
+                <img src="logo.png" alt="Logo" /> Fast WoW Combat Analyser
+            </a>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#demo">Demo</a>
+                <a href="#start">Get Started</a>
+                <a href="https://github.com/D4GGe/Fast-WoW-Combat-analyser" target="_blank">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="hero">
+        <div class="container">
+            <img src="logo.png" alt="Fast WoW Combat Analyser" class="hero-logo" />
+            <h1>Fast WoW Combat Analyser</h1>
+            <p>Instant, offline combat log analysis for World of Warcraft.<br />No uploads. No delays. Just open and
+                analyze.</p>
+            <a href="https://github.com/D4GGe/Fast-WoW-Combat-analyser/releases" class="hero-cta">
+                ⬇ Download Latest Release
+            </a>
+        </div>
+    </header>
+
+    <!-- Why -->
+    <section id="why" class="fade-in">
+        <div class="container">
+            <span class="section-label">The Problem</span>
+            <h2 class="section-title">Why?</h2>
+            <div class="why-content">
+                <p>Since the <strong>WoW 12.0 (The War Within)</strong> release, the popular <strong>Details! Damage
+                        Meter</strong> addon has struggled to provide reliable post-combat analytics. Encounter
+                    breakdowns, damage/healing meters, and timeline data are often inaccurate or missing entirely —
+                    leaving raiders and M+ pushers without the tools they need to improve.</p>
+                <p>Existing alternatives like Warcraftlogs require <strong>uploading</strong> your combat logs to an
+                    external server and waiting for them to be processed. That's fine for progression review, but when
+                    you just want to quickly check how a pull went between attempts, that workflow is too slow.</p>
+                <p><strong>Fast WoW Combat Analyser</strong> fills that gap. It reads your <code>WoWCombatLog</code>
+                    files <strong>directly from disk</strong> and presents a full analysis <strong>instantly</strong> in
+                    your browser — no uploads, no accounts, no waiting.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="fade-in">
+        <div class="container">
+            <span class="section-label">What You Get</span>
+            <h2 class="section-title">Features</h2>
+            <p class="section-subtitle">Everything you need to review your combat performance, instantly.</p>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <span class="feature-icon">⚡</span>
+                    <h3>Instant Analysis</h3>
+                    <p>Parses even 500MB+ logs in seconds. No waiting, no loading screens.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🏰</span>
+                    <h3>Raid Support</h3>
+                    <p>Boss encounters grouped by instance, kill/wipe tracking, damage &amp; healing meters with boss HP
+                        timelines.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🗝️</span>
+                    <h3>Mythic+ Support</h3>
+                    <p>Key level, timer, timed/depleted status, segment-by-segment breakdown of trash vs bosses.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">📊</span>
+                    <h3>Detailed Meters</h3>
+                    <p>DPS, HPS, damage taken, deaths, and more per encounter.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">💀</span>
+                    <h3>Death Log</h3>
+                    <p>See exactly what killed each player — no more guessing.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🔄</span>
+                    <h3>Live Refresh</h3>
+                    <p>Re-read the log file mid-session to see the latest data without restarting.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🎨</span>
+                    <h3>Dark Theme</h3>
+                    <p>Easy on the eyes during late-night prog sessions.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">📦</span>
+                    <h3>Single Portable .exe</h3>
+                    <p>No installation, no dependencies. Just download and run.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Demo -->
+    <section id="demo" class="fade-in">
+        <div class="container">
+            <span class="section-label">See It In Action</span>
+            <h2 class="section-title">Demo</h2>
+            <p class="section-subtitle">A full walkthrough of the analyser — from opening a log to reviewing boss
+                encounters.</p>
+            <div class="demo-container">
+                <img src="Animation.gif" alt="Fast WoW Combat Analyser demo showing raid and M+ analysis"
+                    loading="lazy" />
+            </div>
+        </div>
+    </section>
+
+    <!-- Getting Started -->
+    <section id="start" class="fade-in">
+        <div class="container">
+            <span class="section-label">Ready to Go</span>
+            <h2 class="section-title">Getting Started</h2>
+            <p class="section-subtitle">Up and running in under a minute.</p>
+            <div class="steps">
+                <div class="step-card">
+                    <div class="step-number">1</div>
+                    <h3>Download</h3>
+                    <p>Grab the latest <code>wowlogger.exe</code> from the <a
+                            href="https://github.com/D4GGe/Fast-WoW-Combat-analyser/releases"
+                            style="color: var(--accent-secondary);">Releases</a> page.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">2</div>
+                    <h3>Run</h3>
+                    <p>Double-click <code>wowlogger.exe</code> — it auto-detects your WoW combat log directory.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">3</div>
+                    <h3>Analyze</h3>
+                    <p>Click <strong>"Open in Browser"</strong> — your analysis is ready at <code>localhost:3000</code>.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Build from Source -->
+    <section class="fade-in">
+        <div class="container">
+            <span class="section-label">For Developers</span>
+            <h2 class="section-title">Building from Source</h2>
+            <div class="code-block">
+                <pre><span class="comment"># Clone</span>
+<span class="cmd">git clone https://github.com/D4GGe/Fast-WoW-Combat-analyser.git</span>
+<span class="cmd">cd Fast-WoW-Combat-analyser</span>
+
+<span class="comment"># Build (requires Rust toolchain)</span>
+<span class="cmd">cargo build --release</span>
+
+<span class="comment"># The binary is at target/release/wowlogger.exe</span></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tech Stack -->
+    <section class="fade-in">
+        <div class="container">
+            <span class="section-label">Under the Hood</span>
+            <h2 class="section-title">Tech Stack</h2>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <h3>🦀 Backend</h3>
+                    <p>Rust (Tokio + Axum) — fast, safe, and memory-efficient</p>
+                </div>
+                <div class="tech-item">
+                    <h3>🌐 Frontend</h3>
+                    <p>Vanilla HTML/CSS/JS — embedded directly in the binary</p>
+                </div>
+                <div class="tech-item">
+                    <h3>🖥️ GUI</h3>
+                    <p>Native Win32 — lightweight control window with dark theme</p>
+                </div>
+                <div class="tech-item">
+                    <h3>📦 Zero Dependencies</h3>
+                    <p>Everything compiled into a single executable</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>Made with ♥ by D4GGe</p>
+        </div>
+    </footer>
+
+    <!-- Scroll fade-in observer -->
+    <script>
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.1 });
+
+        document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+    </script>
+
+</body>
+
+</html>
