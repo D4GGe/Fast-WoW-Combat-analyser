@@ -1200,6 +1200,9 @@ fn process_combat_event(
     let source_name = fields.get(2).map(|s| unquote(s)).unwrap_or_default();
     let dest_guid = fields.get(5).map(|s| s.to_string()).unwrap_or_default();
     let dest_name = fields.get(6).map(|s| unquote(s)).unwrap_or_default();
+    // Strip server-realm from names (e.g. "Spougle-TwistingNether-EU" -> "Spougle")
+    let source_name = source_name.split('-').next().unwrap_or(&source_name).to_string();
+    let dest_name = dest_name.split('-').next().unwrap_or(&dest_name).to_string();
 
     // Register player names
     if source_guid.starts_with("Player-") && !source_name.is_empty() {
