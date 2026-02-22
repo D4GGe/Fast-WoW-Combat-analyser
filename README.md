@@ -50,6 +50,8 @@ Grab the latest `wowlogger.exe` from the [Releases](https://github.com/D4GGe/Fas
 2. It auto-detects your WoW combat log directory (`World of Warcraft\_retail_\Logs`)
 3. Click **"Open in Browser"** — your analysis is ready at `http://localhost:3000`
 
+> ⚠️ **Windows SmartScreen** may block the program on first launch because the executable is not code-signed. Click **"More info"** → **"Run anyway"** to proceed. The app is fully open-source — feel free to inspect or build it yourself.
+
 ### Make sure combat logging is enabled
 Type `/combatlog` in WoW to start recording, or add this to your WoW macros to toggle it automatically.
 
