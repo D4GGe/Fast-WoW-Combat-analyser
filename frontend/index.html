@@ -355,6 +355,272 @@
       margin-bottom: 24px;
       border-bottom: 1px solid var(--border-color);
       padding-bottom: 0;
+      flex-wrap: wrap;
+    }
+
+    /* Replay tab styles */
+    .replay-container {
+      padding: 16px 0;
+    }
+
+    .replay-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px 16px;
+    }
+
+    .replay-controls button {
+      background: var(--accent-purple);
+      border: none;
+      color: #fff;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+
+    .replay-controls button:hover {
+      background: rgba(139, 92, 246, 0.8);
+    }
+
+    .replay-slider {
+      flex: 1;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--bg-secondary);
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .replay-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent-purple);
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(139, 92, 246, 0.5);
+    }
+
+    .replay-time {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      min-width: 100px;
+      text-align: center;
+    }
+
+    .replay-speed {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 4px 8px;
+      cursor: pointer;
+      min-width: 40px;
+      text-align: center;
+    }
+
+    .replay-speed:hover {
+      color: var(--text-primary);
+      border-color: var(--border-glow);
+    }
+
+    .replay-death-markers {
+      position: relative;
+      height: 12px;
+      margin: -8px 64px 8px 64px;
+    }
+
+    .replay-death-marker {
+      position: absolute;
+      top: 0;
+      font-size: 10px;
+      transform: translateX(-50%);
+      cursor: default;
+    }
+
+    /* Position map */
+    .replay-map-section {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .replay-map-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .replay-map-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .replay-map-canvas {
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      width: 100%;
+      aspect-ratio: 1;
+      display: block;
+    }
+
+    /* Raid frames */
+    .replay-raid-frames {
+      width: 100%;
+    }
+
+    .replay-raid-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .replay-frames-grid {
+      display: grid;
+      gap: 3px;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    }
+
+    .raid-frame {
+      position: relative;
+      height: 44px;
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: default;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: opacity 0.15s;
+    }
+
+    .raid-frame.dead {
+      opacity: 0.45;
+    }
+
+    .raid-frame-bg {
+      position: absolute;
+      inset: 0;
+      opacity: 0.35;
+    }
+
+    .raid-frame-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      transition: width 0.15s ease;
+    }
+
+    .raid-frame-deficit {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      transition: width 0.15s ease;
+    }
+
+    .raid-frame-content {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+    }
+
+    .raid-frame-name {
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    .raid-frame-hp {
+      font-size: 9px;
+      color: rgba(255, 255, 255, 0.7);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    }
+
+    .raid-frame-dead-icon {
+      font-size: 18px;
+      text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+    }
+
+    .replay-boss-hp {
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+    }
+
+    .replay-boss-hp-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .replay-boss-hp-bar {
+      height: 24px;
+      background: var(--bg-secondary);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .replay-boss-hp-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #ef4444, #f97316);
+      border-radius: 6px;
+      transition: width 0.15s ease;
+    }
+
+    .replay-boss-hp-text {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
     }
 
     .tab {
@@ -1349,6 +1615,7 @@
       <button class="tab${(window.__currentTab || 'damage') === 'abilities' ? ' active' : ''}" onclick="showTab('abilities', this)">📊 Abilities</button>
       <button class="tab${(window.__currentTab || 'damage') === 'enemies' ? ' active' : ''}" onclick="showTab('enemies', this)">👹 Enemies</button>
       <button class="tab${(window.__currentTab || 'damage') === 'buffs' ? ' active' : ''}" onclick="showTab('buffs', this)">🔮 Buff Uptime</button>
+      ${enc.replay_timeline && enc.replay_timeline.length > 0 ? `<button class="tab${(window.__currentTab || 'damage') === 'replay' ? ' active' : ''}" onclick="showTab('replay', this)">🎬 Replay</button>` : ''}
     </div>
 
     <div id="tab-content"></div>
@@ -1431,6 +1698,11 @@
             if (search) pBuffs = pBuffs.filter(b => b.spell_name.toLowerCase().includes(search) || (b.source_name || '').toLowerCase().includes(search));
             setTimeout(() => drawBuffTimelines(pBuffs, buffDuration), 0);
           }
+          break;
+        }
+        case 'replay': {
+          content.innerHTML = renderReplayTab(enc);
+          initReplayControls(enc);
           break;
         }
       }
@@ -2627,6 +2899,402 @@
           ctx.fillText(stacks.toString(), x1 + 2, h - 4);
         }
       }
+    }
+
+    // ========== Replay Tab ==========
+    function renderReplayTab(enc) {
+      if (!enc.replay_timeline || enc.replay_timeline.length === 0) {
+        return `<div class="empty-state"><div class="icon">🎬</div><div class="title">No replay data</div><p>HP data not available for this encounter.</p></div>`;
+      }
+
+      // Get unique player GUIDs from timeline
+      const playerGuids = [...new Set(enc.replay_timeline.map(s => s.guid))];
+      const playerInfo = {};
+      for (const s of enc.replay_timeline) {
+        if (!playerInfo[s.guid]) {
+          playerInfo[s.guid] = { name: s.name, class_name: s.class_name, max_hp: s.max_hp };
+        }
+        if (s.max_hp > playerInfo[s.guid].max_hp) playerInfo[s.guid].max_hp = s.max_hp;
+      }
+
+      // Check if position data exists
+      const hasPositions = enc.replay_timeline.some(s => s.pos_x != null && s.pos_y != null);
+
+      // Death markers
+      const deaths = enc.deaths || [];
+      const deathMarkers = deaths.map(d => {
+        const pct = (d.time_into_fight_secs / enc.duration_secs * 100).toFixed(2);
+        return `<span class="replay-death-marker" style="left:${pct}%" title="💀 ${d.player_name} died at ${formatDuration(d.time_into_fight_secs)}${d.killing_blow_spell ? ' — ' + d.killing_blow_spell : ''}">💀</span>`;
+      }).join('');
+
+      // Boss HP section
+      const hasBossHp = enc.boss_hp_timeline && enc.boss_hp_timeline.length > 0;
+      const bossSection = hasBossHp ? `
+        <div class="replay-boss-hp">
+          <div class="replay-boss-hp-label">BOSS HP — ${enc.name}</div>
+          <div class="replay-boss-hp-bar">
+            <div class="replay-boss-hp-fill" id="replay-boss-fill" style="width:100%"></div>
+            <div class="replay-boss-hp-text" id="replay-boss-text">100%</div>
+          </div>
+        </div>` : '';
+
+      // Raid frame HTML
+      const raidFramesHtml = playerGuids.map(guid => {
+        const info = playerInfo[guid];
+        const color = classColor(info.class_name);
+        const safeId = guid.replace(/[^a-zA-Z0-9]/g, '_');
+        return `
+          <div class="raid-frame" id="rf-${safeId}">
+            <div class="raid-frame-bg" style="background:${color}"></div>
+            <div class="raid-frame-fill" id="rf-fill-${safeId}" style="width:100%;background:${color};opacity:0.7"></div>
+            <div class="raid-frame-deficit" id="rf-def-${safeId}" style="width:0%"></div>
+            <div class="raid-frame-content">
+              <div class="raid-frame-name">${info.name.split('-')[0]}</div>
+              <div class="raid-frame-hp" id="rf-hp-${safeId}">${formatNumber(info.max_hp)}</div>
+            </div>
+          </div>`;
+      }).join('');
+
+      // Map section
+      const mapSection = hasPositions ? `
+        <div class="replay-map-wrap">
+          <div class="replay-map-label">Position Map</div>
+          <canvas class="replay-map-canvas" id="replay-map"></canvas>
+        </div>` : '';
+
+      return `
+        <div class="replay-container">
+          <div class="replay-controls">
+            <button id="replay-playpause" title="Play / Pause">▶</button>
+            <input type="range" class="replay-slider" id="replay-slider" min="0" max="${(enc.duration_secs * 10).toFixed(0)}" value="0" step="1" />
+            <div class="replay-time" id="replay-time">0:00 / ${formatDuration(enc.duration_secs)}</div>
+            <div class="replay-speed" id="replay-speed" title="Click to change speed">1×</div>
+          </div>
+          <div class="replay-death-markers" id="replay-markers">${deathMarkers}</div>
+          ${bossSection}
+          <div class="replay-map-section">
+            <div class="replay-raid-frames">
+              <div class="replay-raid-label">Party / Raid Frames</div>
+              <div class="replay-frames-grid">${raidFramesHtml}</div>
+            </div>
+            ${mapSection}
+          </div>
+        </div>`;
+    }
+
+    function initReplayControls(enc) {
+      const slider = document.getElementById('replay-slider');
+      const timeDisplay = document.getElementById('replay-time');
+      const playBtn = document.getElementById('replay-playpause');
+      const speedBtn = document.getElementById('replay-speed');
+      const mapCanvas = document.getElementById('replay-map');
+      if (!slider) return;
+
+      // Build index: group timeline by time for fast lookup
+      const timeline = enc.replay_timeline;
+      const timeIndex = []; // [{time, startIdx, endIdx}]
+      let i = 0;
+      while (i < timeline.length) {
+        const t = timeline[i].time;
+        const start = i;
+        while (i < timeline.length && timeline[i].time === t) i++;
+        timeIndex.push({ time: t, startIdx: start, endIdx: i });
+      }
+
+      // Boss HP timeline index
+      const bossHp = enc.boss_hp_timeline || [];
+
+      // Compute position bounding box for the map (include both players and boss)
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const s of timeline) {
+        if (s.pos_x != null && s.pos_y != null) {
+          const gx = -s.pos_y;
+          const gy = s.pos_x;
+          if (gx < minX) minX = gx;
+          if (gx > maxX) maxX = gx;
+          if (gy < minY) minY = gy;
+          if (gy > maxY) maxY = gy;
+        }
+      }
+      const bossPos = enc.boss_positions || [];
+      for (const bp of bossPos) {
+        const bgx = -bp[2]; // posY -> game_x
+        const bgy = bp[1];  // posX -> game_y
+        if (bgx < minX) minX = bgx;
+        if (bgx > maxX) maxX = bgx;
+        if (bgy < minY) minY = bgy;
+        if (bgy > maxY) maxY = bgy;
+      }
+      const hasPositions = minX < Infinity;
+      const pad = 25;
+
+      // Auto-size canvas to fill container (square)
+      let mapW = 320, mapH = 320;
+      if (mapCanvas) {
+        const containerW = mapCanvas.parentElement.clientWidth - 24; // minus padding
+        const sz = Math.max(containerW, 200);
+        mapCanvas.width = sz;
+        mapCanvas.height = sz;
+        mapW = sz;
+        mapH = sz;
+      }
+
+      const rangeX = (maxX - minX) || 1;
+      const rangeY = (maxY - minY) || 1;
+      const scale = Math.min((mapW - pad * 2) / rangeX, (mapH - pad * 2) / rangeY);
+      const offsetX = (mapW - rangeX * scale) / 2;
+      const offsetY = (mapH - rangeY * scale) / 2;
+
+      let playing = false;
+      let animFrame = null;
+      let lastFrameTime = 0;
+      const speeds = [0.5, 1, 2, 4, 8];
+      let speedIdx = 1;
+
+      function findSnapshotsAtTime(t) {
+        // Binary search for the last timeIndex entry <= t
+        let lo = 0, hi = timeIndex.length - 1, best = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (timeIndex[mid].time <= t) { best = mid; lo = mid + 1; }
+          else { hi = mid - 1; }
+        }
+        if (best < 0) return [];
+        const entry = timeIndex[best];
+        return timeline.slice(entry.startIdx, entry.endIdx);
+      }
+
+      function findBossHpAtTime(t) {
+        let lo = 0, hi = bossHp.length - 1, best = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (bossHp[mid][0] <= t) { best = mid; lo = mid + 1; }
+          else { hi = mid - 1; }
+        }
+        return best >= 0 ? bossHp[best][1] : 100;
+      }
+
+      function updateDisplay(timeVal) {
+        const t = timeVal / 10;
+        timeDisplay.textContent = `${formatDuration(t)} / ${formatDuration(enc.duration_secs)}`;
+
+        const snapshots = findSnapshotsAtTime(t);
+
+        // Update raid frames
+        for (const s of snapshots) {
+          const safeId = s.guid.replace(/[^a-zA-Z0-9]/g, '_');
+          const frame = document.getElementById('rf-' + safeId);
+          const fill = document.getElementById('rf-fill-' + safeId);
+          const deficit = document.getElementById('rf-def-' + safeId);
+          const hpText = document.getElementById('rf-hp-' + safeId);
+          if (!frame) continue;
+
+          const pct = s.max_hp > 0 ? (s.current_hp / s.max_hp * 100) : 0;
+          const defPct = 100 - pct;
+
+          if (s.is_dead) {
+            frame.classList.add('dead');
+            fill.style.width = '0%';
+            deficit.style.width = '100%';
+            hpText.textContent = '💀 Dead';
+          } else {
+            frame.classList.remove('dead');
+            fill.style.width = pct.toFixed(1) + '%';
+            deficit.style.width = defPct.toFixed(1) + '%';
+            hpText.textContent = formatNumber(s.current_hp);
+          }
+        }
+
+        // Update boss HP
+        const bossFill = document.getElementById('replay-boss-fill');
+        const bossText = document.getElementById('replay-boss-text');
+        if (bossFill && bossText) {
+          const hp = findBossHpAtTime(t);
+          bossFill.style.width = hp.toFixed(1) + '%';
+          bossText.textContent = hp.toFixed(1) + '%';
+        }
+
+        // Draw position map with smooth interpolation
+        if (mapCanvas && hasPositions && snapshots.length > 0) {
+          const ctx = mapCanvas.getContext('2d');
+          ctx.clearRect(0, 0, mapW, mapH);
+
+          // Draw grid
+          ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+          ctx.lineWidth = 1;
+          for (let gx = 0; gx <= mapW; gx += 40) {
+            ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, mapH); ctx.stroke();
+          }
+          for (let gy = 0; gy <= mapH; gy += 40) {
+            ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(mapW, gy); ctx.stroke();
+          }
+
+          // Find next time bucket for interpolation
+          let lo2 = 0, hi2 = timeIndex.length - 1, bestCur = -1;
+          while (lo2 <= hi2) {
+            const mid = (lo2 + hi2) >> 1;
+            if (timeIndex[mid].time <= t) { bestCur = mid; lo2 = mid + 1; }
+            else { hi2 = mid - 1; }
+          }
+          const nextIdx = bestCur + 1;
+          const hasNext = nextIdx < timeIndex.length;
+          const nextSnapshots = hasNext ? timeline.slice(timeIndex[nextIdx].startIdx, timeIndex[nextIdx].endIdx) : [];
+          const nextByGuid = {};
+          for (const ns of nextSnapshots) {
+            nextByGuid[ns.guid] = ns;
+          }
+          const curTime = bestCur >= 0 ? timeIndex[bestCur].time : 0;
+          const nextTime = hasNext ? timeIndex[nextIdx].time : curTime + 0.5;
+          const lerpFactor = (nextTime > curTime) ? Math.min(1, Math.max(0, (t - curTime) / (nextTime - curTime))) : 0;
+
+          // Draw player dots with interpolated positions
+          ctx.font = '10px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          for (const s of snapshots) {
+            if (s.pos_x == null || s.pos_y == null) continue;
+            let gx = -s.pos_y;
+            let gy = s.pos_x;
+
+            // Interpolate toward next position
+            const ns = nextByGuid[s.guid];
+            if (ns && ns.pos_x != null && ns.pos_y != null) {
+              const ngx = -ns.pos_y;
+              const ngy = ns.pos_x;
+              gx = gx + (ngx - gx) * lerpFactor;
+              gy = gy + (ngy - gy) * lerpFactor;
+            }
+
+            const cx = offsetX + (gx - minX) * scale;
+            const cy = offsetY + (gy - minY) * scale;
+            const color = classColor(s.class_name);
+
+            if (s.is_dead) {
+              ctx.strokeStyle = '#666';
+              ctx.lineWidth = 2;
+              ctx.beginPath(); ctx.moveTo(cx - 4, cy - 4); ctx.lineTo(cx + 4, cy + 4); ctx.stroke();
+              ctx.beginPath(); ctx.moveTo(cx + 4, cy - 4); ctx.lineTo(cx - 4, cy + 4); ctx.stroke();
+            } else {
+              ctx.beginPath();
+              ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+              ctx.fillStyle = color;
+              ctx.fill();
+              ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+              ctx.lineWidth = 1;
+              ctx.stroke();
+
+              if (s.max_hp > 0) {
+                const hpPct = s.current_hp / s.max_hp;
+                if (hpPct < 1) {
+                  ctx.beginPath();
+                  ctx.arc(cx, cy, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * hpPct);
+                  ctx.strokeStyle = color;
+                  ctx.lineWidth = 2;
+                  ctx.stroke();
+                }
+              }
+            }
+
+            ctx.fillStyle = s.is_dead ? '#666' : 'rgba(255,255,255,0.8)';
+            ctx.fillText(s.name.split('-')[0], cx, cy - 12);
+          }
+
+          // Draw boss marker (red diamond)
+          if (bossPos.length > 0) {
+            // Binary search for current boss position
+            let bLo = 0, bHi = bossPos.length - 1, bBest = -1;
+            while (bLo <= bHi) {
+              const mid = (bLo + bHi) >> 1;
+              if (bossPos[mid][0] <= t) { bBest = mid; bLo = mid + 1; }
+              else { bHi = mid - 1; }
+            }
+            if (bBest >= 0) {
+              let bgx = -bossPos[bBest][2];
+              let bgy = bossPos[bBest][1];
+              // Lerp to next boss position
+              if (bBest + 1 < bossPos.length) {
+                const curT = bossPos[bBest][0];
+                const nextT = bossPos[bBest + 1][0];
+                const f = (nextT > curT) ? Math.min(1, (t - curT) / (nextT - curT)) : 0;
+                const ngx = -bossPos[bBest + 1][2];
+                const ngy = bossPos[bBest + 1][1];
+                bgx += (ngx - bgx) * f;
+                bgy += (ngy - bgy) * f;
+              }
+              const bcx = offsetX + (bgx - minX) * scale;
+              const bcy = offsetY + (bgy - minY) * scale;
+              // Draw diamond shape
+              const ds = 10;
+              ctx.beginPath();
+              ctx.moveTo(bcx, bcy - ds);
+              ctx.lineTo(bcx + ds, bcy);
+              ctx.lineTo(bcx, bcy + ds);
+              ctx.lineTo(bcx - ds, bcy);
+              ctx.closePath();
+              ctx.fillStyle = '#ef4444';
+              ctx.fill();
+              ctx.strokeStyle = '#000';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+              // Boss label
+              ctx.font = 'bold 11px Inter, sans-serif';
+              ctx.fillStyle = '#ef4444';
+              ctx.fillText(enc.name || 'Boss', bcx, bcy - 14);
+            }
+          }
+        }
+      }
+
+      slider.addEventListener('input', () => {
+        updateDisplay(parseInt(slider.value));
+      });
+
+      playBtn.addEventListener('click', () => {
+        playing = !playing;
+        playBtn.textContent = playing ? '⏸' : '▶';
+        if (playing) {
+          lastFrameTime = performance.now();
+          animate();
+        } else if (animFrame) {
+          cancelAnimationFrame(animFrame);
+          animFrame = null;
+        }
+      });
+
+      speedBtn.addEventListener('click', () => {
+        speedIdx = (speedIdx + 1) % speeds.length;
+        speedBtn.textContent = speeds[speedIdx] + '×';
+      });
+
+      let accumulator = 0;
+
+      function animate() {
+        if (!playing) return;
+        const now = performance.now();
+        const dt = (now - lastFrameTime) / 1000;
+        lastFrameTime = now;
+
+        accumulator += dt * speeds[speedIdx] * 10;
+        const advance = Math.floor(accumulator);
+        if (advance > 0) {
+          accumulator -= advance;
+          let val = parseInt(slider.value) + advance;
+          const maxVal = parseInt(slider.max);
+          if (val >= maxVal) {
+            val = maxVal;
+            playing = false;
+            playBtn.textContent = '▶';
+          }
+          slider.value = val;
+          updateDisplay(val);
+        }
+
+        if (playing) {
+          animFrame = requestAnimationFrame(animate);
+        }
+      }
+
+      // Initial display at t=0
+      updateDisplay(0);
     }
 
     // ========== Init ==========

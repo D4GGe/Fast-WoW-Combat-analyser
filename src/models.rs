@@ -44,6 +44,10 @@ pub struct EncounterSummary {
     pub time_bucketed_player_damage: std::collections::HashMap<u32, std::collections::HashMap<String, u64>>,
     /// Boss HP timeline: Vec of (elapsed_secs, hp_pct) sampled at damage events
     pub boss_hp_timeline: Vec<(f64, f64)>,
+    /// Replay timeline: per-player HP snapshots sampled every 0.5s
+    pub replay_timeline: Vec<HpSnapshot>,
+    /// Boss positions on the map: (elapsed_secs, pos_x, pos_y)
+    pub boss_positions: Vec<(f64, f64, f64)>,
 }
 
 /// Individual boss encounter within a M+ run
@@ -209,6 +213,20 @@ pub struct RecapEvent {
     pub wowhead_url: String,
     pub current_hp: u64,
     pub max_hp: u64,
+}
+
+/// A single HP snapshot for a player at a point in time (for replay)
+#[derive(Debug, Serialize, Clone)]
+pub struct HpSnapshot {
+    pub time: f64,
+    pub guid: String,
+    pub name: String,
+    pub class_name: String,
+    pub current_hp: u64,
+    pub max_hp: u64,
+    pub is_dead: bool,
+    pub pos_x: Option<f64>,
+    pub pos_y: Option<f64>,
 }
 
 /// A zone change event

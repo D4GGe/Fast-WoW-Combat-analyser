@@ -198,6 +198,8 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                         phases: Vec::new(),
                         time_bucketed_player_damage: HashMap::new(),
                         boss_hp_timeline: Vec::new(),
+                        replay_timeline: tracker.build_hp_timeline(duration),
+                        boss_positions: tracker.boss_position_events.clone(),
                     });
 
                     in_key = false;
@@ -345,6 +347,8 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                         ),
                         time_bucketed_player_damage: standalone_tracker.time_bucketed_player_damage.clone(),
                         boss_hp_timeline: standalone_tracker.boss_hp_timeline.clone(),
+                        replay_timeline: standalone_tracker.build_hp_timeline(duration),
+                        boss_positions: standalone_tracker.boss_position_events.clone(),
                     });
 
                     standalone_boss = false;
@@ -439,6 +443,12 @@ struct EventTracker {
     player_heal_ability_events: Vec<(f64, String, u64, String, u32, u64, String)>,
     /// Per-ability damage taken events: (ts, dest_guid, spell_id, spell_name, spell_school, amount, source_name)
     player_damage_taken_events: Vec<(f64, String, u64, String, u32, u64, String)>,
+    /// Raw player HP events for replay: (elapsed_secs, dest_guid, current_hp, max_hp)
+    hp_events: Vec<(f64, String, u64, u64)>,
+    /// Raw player position events for replay: (elapsed_secs, dest_guid, pos_x, pos_y)
+    position_events: Vec<(f64, String, f64, f64)>,
+    /// Raw boss position events for replay map: (elapsed_secs, pos_x, pos_y)
+    boss_position_events: Vec<(f64, f64, f64)>,
 }
 
 impl EventTracker {
@@ -478,6 +488,9 @@ impl EventTracker {
             player_ability_events: Vec::new(),
             player_heal_ability_events: Vec::new(),
             player_damage_taken_events: Vec::new(),
+            hp_events: Vec::new(),
+            position_events: Vec::new(),
+            boss_position_events: Vec::new(),
         }
     }
 
@@ -1078,6 +1091,100 @@ impl EventTracker {
 
         phases
     }
+
+    /// Build HP timeline for replay: sample each player's HP at 0.5s intervals
+    fn build_hp_timeline(&self, duration: f64) -> Vec<HpSnapshot> {
+        if self.hp_events.is_empty() {
+            return Vec::new();
+        }
+
+        let bucket_size = 0.5_f64;
+        let num_buckets = (duration / bucket_size).ceil() as usize + 1;
+        let num_buckets = num_buckets.min(20000); // cap at ~2.7h
+
+        // Collect all player GUIDs
+        let player_guids: Vec<String> = self.player_names.keys()
+            .filter(|g| g.starts_with("Player-"))
+            .cloned()
+            .collect();
+
+        if player_guids.is_empty() {
+            return Vec::new();
+        }
+
+        // Track last known HP per player
+        let mut last_hp: HashMap<String, (u64, u64)> = HashMap::new();
+        // Track last known position per player
+        let mut last_pos: HashMap<String, (f64, f64)> = HashMap::new();
+        // Track death times per player
+        let mut death_times: HashMap<String, f64> = HashMap::new();
+        for d in &self.death_events {
+            death_times.entry(d.player_guid.clone()).or_insert(d.time_into_fight_secs);
+        }
+
+        // Sort hp_events by time
+        let mut sorted_events = self.hp_events.clone();
+        sorted_events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Sort position_events by time
+        let mut sorted_pos = self.position_events.clone();
+        sorted_pos.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut result: Vec<HpSnapshot> = Vec::new();
+        let mut event_idx = 0;
+        let mut pos_idx = 0;
+
+        for bucket in 0..num_buckets {
+            let t = bucket as f64 * bucket_size;
+            if t > duration {
+                break;
+            }
+
+            // Advance through HP events up to this bucket time
+            while event_idx < sorted_events.len() && sorted_events[event_idx].0 <= t {
+                let (_, ref guid, hp, max_hp) = sorted_events[event_idx];
+                if max_hp > 0 {
+                    last_hp.insert(guid.clone(), (hp, max_hp));
+                }
+                event_idx += 1;
+            }
+
+            // Advance through position events up to this bucket time
+            while pos_idx < sorted_pos.len() && sorted_pos[pos_idx].0 <= t {
+                let (_, ref guid, px, py) = sorted_pos[pos_idx];
+                last_pos.insert(guid.clone(), (px, py));
+                pos_idx += 1;
+            }
+
+            // Emit a snapshot for each player
+            for guid in &player_guids {
+                if let Some(&(hp, max_hp)) = last_hp.get(guid) {
+                    let name = self.player_names.get(guid).cloned().unwrap_or_default();
+                    let class_name = self.player_specs.get(guid)
+                        .and_then(|id| spec_info(*id))
+                        .map(|(c, _, _)| c.to_string())
+                        .unwrap_or_default();
+                    let is_dead = death_times.get(guid).map(|dt| t >= *dt).unwrap_or(false);
+                    let (pos_x, pos_y) = last_pos.get(guid)
+                        .map(|&(x, y)| (Some(x), Some(y)))
+                        .unwrap_or((None, None));
+                    result.push(HpSnapshot {
+                        time: (t * 10.0).round() / 10.0,
+                        guid: guid.clone(),
+                        name,
+                        class_name,
+                        current_hp: if is_dead { 0 } else { hp },
+                        max_hp,
+                        is_dead,
+                        pos_x,
+                        pos_y,
+                    });
+                }
+            }
+        }
+
+        result
+    }
 }
 
 /// Process a single combat event
@@ -1153,6 +1260,15 @@ fn process_combat_event(
                             if tracker.encounter_start_secs > 0.0 {
                                 let elapsed = timestamp_secs - tracker.encounter_start_secs;
                                 tracker.boss_hp_timeline.push((elapsed, tracker.current_boss_hp_pct));
+                                // Track boss position for replay map (SPELL events: posX at field 26, posY at field 27)
+                                if let (Some(px), Some(py)) = (
+                                    fields.get(26).and_then(|s| s.parse::<f64>().ok()),
+                                    fields.get(27).and_then(|s| s.parse::<f64>().ok()),
+                                ) {
+                                    if px.abs() > 0.01 || py.abs() > 0.01 {
+                                        tracker.boss_position_events.push((elapsed, px, py));
+                                    }
+                                }
                             }
                         }
                     }
@@ -1179,6 +1295,19 @@ fn process_combat_event(
                 // HP from advanced info: for SPELL events, currentHP at [14], maxHP at [15]
                 let current_hp: u64 = fields.get(14).and_then(|s| s.parse().ok()).unwrap_or(0);
                 let max_hp: u64 = fields.get(15).and_then(|s| s.parse().ok()).unwrap_or(0);
+                // Track HP for replay timeline
+                if max_hp > 0 {
+                    tracker.hp_events.push((timestamp_secs - start_secs, dest_guid.clone(), current_hp, max_hp));
+                }
+                // Track position for replay map (SPELL events: posX at field 26, posY at field 27)
+                if let (Some(px), Some(py)) = (
+                    fields.get(26).and_then(|s| s.parse::<f64>().ok()),
+                    fields.get(27).and_then(|s| s.parse::<f64>().ok()),
+                ) {
+                    if px.abs() > 0.01 || py.abs() > 0.01 {
+                        tracker.position_events.push((timestamp_secs - start_secs, dest_guid.clone(), px, py));
+                    }
+                }
                 tracker.push_recap_event(&dest_guid, RecapEvent {
                     timestamp: timestamp_str.to_string(),
                     time_into_fight_secs: timestamp_secs - start_secs,
@@ -1240,6 +1369,19 @@ fn process_combat_event(
                 // HP from advanced info: for SWING events, currentHP at [11], maxHP at [12]
                 let current_hp: u64 = fields.get(11).and_then(|s| s.parse().ok()).unwrap_or(0);
                 let max_hp: u64 = fields.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
+                // Track HP for replay timeline
+                if max_hp > 0 {
+                    tracker.hp_events.push((timestamp_secs - start_secs, dest_guid.clone(), current_hp, max_hp));
+                }
+                // Track position for replay map (SWING events: posX at field 23, posY at field 24)
+                if let (Some(px), Some(py)) = (
+                    fields.get(23).and_then(|s| s.parse::<f64>().ok()),
+                    fields.get(24).and_then(|s| s.parse::<f64>().ok()),
+                ) {
+                    if px.abs() > 0.01 || py.abs() > 0.01 {
+                        tracker.position_events.push((timestamp_secs - start_secs, dest_guid.clone(), px, py));
+                    }
+                }
                 tracker.push_recap_event(&dest_guid, RecapEvent {
                     timestamp: timestamp_str.to_string(),
                     time_into_fight_secs: timestamp_secs - start_secs,
@@ -1285,6 +1427,19 @@ fn process_combat_event(
                 // HP from advanced info: for SPELL events, currentHP at [14], maxHP at [15]
                 let current_hp: u64 = fields.get(14).and_then(|s| s.parse().ok()).unwrap_or(0);
                 let max_hp: u64 = fields.get(15).and_then(|s| s.parse().ok()).unwrap_or(0);
+                // Track HP for replay timeline
+                if max_hp > 0 {
+                    tracker.hp_events.push((timestamp_secs - start_secs, dest_guid.clone(), current_hp, max_hp));
+                }
+                // Track position for replay map (SPELL_HEAL: posX at field 26, posY at field 27)
+                if let (Some(px), Some(py)) = (
+                    fields.get(26).and_then(|s| s.parse::<f64>().ok()),
+                    fields.get(27).and_then(|s| s.parse::<f64>().ok()),
+                ) {
+                    if px.abs() > 0.01 || py.abs() > 0.01 {
+                        tracker.position_events.push((timestamp_secs - start_secs, dest_guid.clone(), px, py));
+                    }
+                }
                 tracker.push_recap_event(&dest_guid, RecapEvent {
                     timestamp: timestamp_str.to_string(),
                     time_into_fight_secs: timestamp_secs - start_secs,
