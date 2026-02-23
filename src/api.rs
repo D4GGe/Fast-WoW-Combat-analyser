@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 use std::collections::HashMap;
+use tower_http::services::ServeDir;
 
 use crate::models::*;
 use crate::parser;
@@ -28,19 +29,64 @@ pub fn create_router(log_dir: Arc<std::sync::Mutex<PathBuf>>, shutdown: Arc<Noti
         shutdown,
     });
 
+    // Determine the dist directory path relative to the executable
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    // Try frontend/dist relative to the exe, then relative to cwd
+    let dist_dir = if exe_dir.join("frontend/dist").exists() {
+        exe_dir.join("frontend/dist")
+    } else if PathBuf::from("frontend/dist").exists() {
+        PathBuf::from("frontend/dist")
+    } else {
+        // Fallback: try parent dirs (common in dev builds where exe is in target/release)
+        exe_dir.parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("frontend/dist"))
+            .filter(|p| p.exists())
+            .unwrap_or_else(|| PathBuf::from("frontend/dist"))
+    };
+
+    let serve_dir = ServeDir::new(&dist_dir)
+        .fallback(get(spa_fallback));
+
     Router::new()
-        .route("/", get(index_page))
         .route("/logo.png", get(serve_logo))
         .route("/favicon.png", get(serve_favicon))
         .route("/api/logs", get(list_logs))
         .route("/api/logs/{filename}/summary", get(log_summary))
         .route("/api/logs/{filename}/encounter/{index}", get(encounter_detail))
         .route("/api/spell_tooltips", get(serve_spell_tooltips))
+        .fallback_service(serve_dir)
         .with_state(state)
 }
 
-async fn index_page() -> Html<&'static str> {
-    Html(include_str!("../frontend/index.html"))
+/// SPA fallback: serve index.html for any route not matched by the API or static files
+async fn spa_fallback() -> impl axum::response::IntoResponse {
+    // Read index.html from the dist directory at runtime
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let index_path = if exe_dir.join("frontend/dist/index.html").exists() {
+        exe_dir.join("frontend/dist/index.html")
+    } else if PathBuf::from("frontend/dist/index.html").exists() {
+        PathBuf::from("frontend/dist/index.html")
+    } else {
+        exe_dir.parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("frontend/dist/index.html"))
+            .filter(|p| p.exists())
+            .unwrap_or_else(|| PathBuf::from("frontend/dist/index.html"))
+    };
+
+    match std::fs::read_to_string(&index_path) {
+        Ok(html) => Html(html),
+        Err(_) => Html("<h1>Frontend not built</h1><p>Run 'npm run build' in the frontend directory.</p>".to_string()),
+    }
 }
 
 async fn serve_logo() -> impl axum::response::IntoResponse {

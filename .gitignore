@@ -1,2 +1,8 @@
 /target
 .env
+*.exe
+frontend/node_modules
+frontend/dist
+Cargo.lock
+*.log
+*.txt

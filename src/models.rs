@@ -48,6 +48,8 @@ pub struct EncounterSummary {
     pub replay_timeline: Vec<HpSnapshot>,
     /// Boss positions on the map: (elapsed_secs, pos_x, pos_y)
     pub boss_positions: Vec<(f64, f64, f64)>,
+    /// Raw ability events for time filtering: (elapsed_secs, player_guid, spell_id, spell_name, spell_school, amount, target_name)
+    pub raw_ability_events: Vec<(f64, String, u64, String, u32, u64, String)>,
 }
 
 /// Individual boss encounter within a M+ run

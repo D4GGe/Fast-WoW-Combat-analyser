@@ -212,6 +212,9 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                         boss_hp_timeline: Vec::new(),
                         replay_timeline: tracker.build_hp_timeline(duration),
                         boss_positions: tracker.boss_position_events.clone(),
+                        raw_ability_events: tracker.player_ability_events.iter()
+                            .map(|(ts, g, sid, sn, sc, amt, tgt)| ((*ts - key_start_time.unwrap_or(0.0)).max(0.0), g.clone(), *sid, sn.clone(), *sc, *amt, tgt.clone()))
+                            .collect(),
                     });
 
                     in_key = false;
@@ -256,41 +259,9 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                     boss_name = enc_name;
                     boss_id = enc_id;
                 } else {
-                    // Flush any accumulated trash before this boss
+                    // Flush any accumulated trash before this boss (disabled for now)
                     if trash_has_combat {
-                        let trash_duration = timestamp_secs - trash_start_secs;
-                        if trash_duration > 0.5 {
-                            trash_index += 1;
-                            let players = trash_tracker.build_player_summaries(trash_duration);
-                            encounters.push(EncounterSummary {
-                                index: encounters.len(),
-                                encounter_id: 0,
-                                name: format!("Trash {}", trash_index),
-                                difficulty_id: if difficulty > 0 { difficulty } else { trash_difficulty },
-                                difficulty_name: difficulty_name(if difficulty > 0 { difficulty } else { trash_difficulty }),
-                                group_size: if group_size > 0 { group_size } else { trash_group_size },
-                                success: true,
-                                duration_secs: trash_duration,
-                                start_time: trash_start_str.clone(),
-                                end_time: timestamp_str.to_string(),
-                                key_level: None,
-                                affixes: Vec::new(),
-                                encounter_type: "trash".to_string(),
-                                boss_encounters: Vec::new(),
-                                players,
-                                deaths: trash_tracker.death_events.clone(),
-                                segments: Vec::new(),
-                                buff_uptimes: trash_tracker.build_buff_uptimes(trash_duration),
-                                enemy_breakdowns: trash_tracker.build_enemy_breakdowns(&[]),
-                                boss_hp_pct: None,
-                                boss_max_hp: None,
-                                phases: Vec::new(),
-                                time_bucketed_player_damage: HashMap::new(),
-                                boss_hp_timeline: Vec::new(),
-                                replay_timeline: trash_tracker.build_hp_timeline(trash_duration),
-                                boss_positions: Vec::new(),
-                            });
-                        }
+                        // Trash encounters disabled for raids
                     }
                     trash_tracker = EventTracker::new_with_context(&tracker);
                     trash_has_combat = false;
@@ -363,6 +334,15 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                 } else if standalone_boss {
                     // Standalone boss encounter ended
                     let duration = timestamp_secs - standalone_start_time.unwrap_or(timestamp_secs);
+                    // Skip pulls shorter than 10 seconds
+                    if duration < 10.0 {
+                        standalone_boss = false;
+                        standalone_tracker = EventTracker::new_with_context(&standalone_tracker);
+                        trash_tracker = EventTracker::new_with_context(&standalone_tracker);
+                        trash_has_combat = false;
+                        trash_start_secs = timestamp_secs;
+                        trash_start_str = timestamp_str.to_string();
+                    } else {
                     let players = standalone_tracker.build_player_summaries(duration);
 
                     encounters.push(EncounterSummary {
@@ -400,6 +380,12 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                         boss_hp_timeline: standalone_tracker.boss_hp_timeline.clone(),
                         replay_timeline: standalone_tracker.build_hp_timeline(duration),
                         boss_positions: standalone_tracker.boss_position_events.clone(),
+                        raw_ability_events: {
+                            let start = standalone_tracker.encounter_start_secs;
+                            standalone_tracker.player_ability_events.iter()
+                                .map(|(ts, g, sid, sn, sc, amt, tgt)| ((*ts - start).max(0.0), g.clone(), *sid, sn.clone(), *sc, *amt, tgt.clone()))
+                                .collect()
+                        },
                     });
 
                     standalone_boss = false;
@@ -410,6 +396,7 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                     trash_has_combat = false;
                     trash_difficulty = standalone_difficulty;
                     trash_group_size = standalone_group_size;
+                    }
                 }
             }
             _ => {
@@ -446,43 +433,8 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
         }
     }
 
-    // Flush any trailing trash at the end of the log
-    if trash_has_combat && !in_key {
-        let last_ts = timestamp_secs_last.unwrap_or(trash_start_secs);
-        let trash_duration = last_ts - trash_start_secs;
-        if trash_duration > 0.5 {
-            trash_index += 1;
-            let players = trash_tracker.build_player_summaries(trash_duration);
-            encounters.push(EncounterSummary {
-                index: encounters.len(),
-                encounter_id: 0,
-                name: format!("Trash {}", trash_index),
-                difficulty_id: trash_difficulty,
-                difficulty_name: difficulty_name(trash_difficulty),
-                group_size: trash_group_size,
-                success: true,
-                duration_secs: trash_duration,
-                start_time: trash_start_str.clone(),
-                end_time: String::new(),
-                key_level: None,
-                affixes: Vec::new(),
-                encounter_type: "trash".to_string(),
-                boss_encounters: Vec::new(),
-                players,
-                deaths: trash_tracker.death_events.clone(),
-                segments: Vec::new(),
-                buff_uptimes: trash_tracker.build_buff_uptimes(trash_duration),
-                enemy_breakdowns: trash_tracker.build_enemy_breakdowns(&[]),
-                boss_hp_pct: None,
-                boss_max_hp: None,
-                phases: Vec::new(),
-                time_bucketed_player_damage: HashMap::new(),
-                boss_hp_timeline: Vec::new(),
-                replay_timeline: trash_tracker.build_hp_timeline(trash_duration),
-                boss_positions: Vec::new(),
-            });
-        }
-    }
+    // Flush any trailing trash at the end of the log (disabled for now)
+    // Trash encounters disabled for raids
 
     Ok(CombatLogSummary {
         filename,
@@ -638,6 +590,57 @@ impl EventTracker {
                 in_window && !is_death_buff_removal
             })
             .collect()
+    }
+
+    /// For raid trash: compute the effective end time by cutting off when DPS drops below 1k for 5+ seconds.
+    /// Returns (effective_end_secs, total_dps). If no cutoff is needed, returns (original_end, dps).
+    fn compute_trash_cutoff(&self, start_secs: f64, end_secs: f64) -> (f64, f64) {
+        let duration = end_secs - start_secs;
+        if duration <= 0.0 { return (end_secs, 0.0); }
+
+        // Build per-second damage buckets (relative to start)
+        let max_sec = duration.ceil() as usize + 1;
+        let mut per_sec_damage = vec![0u64; max_sec];
+        for &(ts, _, amt) in &self.player_damage_events {
+            let bucket = ((ts - start_secs).max(0.0)) as usize;
+            if bucket < max_sec {
+                per_sec_damage[bucket] += amt;
+            }
+        }
+
+        // Find first point where DPS is below 1000 for 5+ consecutive seconds
+        let mut low_dps_start: Option<usize> = None;
+        for sec in 0..max_sec {
+            let dps = per_sec_damage[sec];
+            if dps < 1000 {
+                if low_dps_start.is_none() {
+                    low_dps_start = Some(sec);
+                }
+                if let Some(start) = low_dps_start {
+                    if sec - start >= 5 {
+                        // Cutoff at the start of the low-DPS window
+                        let cutoff = start_secs + start as f64;
+                        let effective_dur = cutoff - start_secs;
+                        let total_dmg: u64 = self.player_damage_events.iter()
+                            .filter(|&&(ts, _, _)| ts >= start_secs && ts < cutoff)
+                            .map(|&(_, _, amt)| amt)
+                            .sum();
+                        let total_dps = if effective_dur > 0.0 { total_dmg as f64 / effective_dur } else { 0.0 };
+                        return (cutoff, total_dps);
+                    }
+                }
+            } else {
+                low_dps_start = None;
+            }
+        }
+
+        // No cutoff needed — compute overall DPS
+        let total_dmg: u64 = self.player_damage_events.iter()
+            .filter(|&&(ts, _, _)| ts >= start_secs && ts <= end_secs)
+            .map(|&(_, _, amt)| amt)
+            .sum();
+        let total_dps = total_dmg as f64 / duration;
+        (end_secs, total_dps)
     }
 
     fn build_player_summaries(&self, duration: f64) -> Vec<PlayerSummary> {

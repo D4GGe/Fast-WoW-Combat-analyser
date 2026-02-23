@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/utils.ts","./src/vite-env.d.ts","./src/components/footer.tsx","./src/components/header.tsx","./src/components/spelltooltip.tsx","./src/hooks/usespelltooltips.tsx","./src/pages/encounterlist.tsx","./src/pages/loglist.tsx","./src/pages/encounterdetail/encounterdetail.tsx"],"version":"5.6.3"}

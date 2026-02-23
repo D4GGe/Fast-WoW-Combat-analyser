@@ -1,0 +1,3501 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fast WoW Combat Analyzer</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    :root {
+      --bg-primary: #0a0e1a;
+      --bg-secondary: #111827;
+      --bg-card: #1a1f35;
+      --bg-card-hover: #222845;
+      --bg-input: #131a2e;
+      --text-primary: #e8eaf0;
+      --text-secondary: #8b92a8;
+      --text-muted: #5a6178;
+      --accent-gold: #f0b232;
+      --accent-blue: #3b82f6;
+      --accent-purple: #8b5cf6;
+      --accent-green: #22c55e;
+      --accent-red: #ef4444;
+      --accent-orange: #f97316;
+      --accent-cyan: #06b6d4;
+      --border-color: #1e2642;
+      --border-glow: rgba(139, 92, 246, 0.3);
+
+      /* WoW class colors */
+      --class-warrior: #C79C6E;
+      --class-paladin: #F58CBA;
+      --class-hunter: #ABD473;
+      --class-rogue: #FFF569;
+      --class-priest: #FFFFFF;
+      --class-dk: #C41F3B;
+      --class-shaman: #0070DE;
+      --class-mage: #69CCF0;
+      --class-warlock: #9482C9;
+      --class-monk: #00FF96;
+      --class-druid: #FF7D0A;
+      --class-dh: #A330C9;
+      --class-evoker: #33937F;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Background effects */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background:
+        radial-gradient(ellipse at 20% 20%, rgba(139, 92, 246, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(59, 130, 246, 0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(240, 178, 50, 0.03) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Header */
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10, 14, 26, 0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 24px;
+    }
+
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent-gold);
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--accent-gold), var(--accent-orange));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .breadcrumb a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .breadcrumb a:hover {
+      color: var(--accent-gold);
+    }
+
+    .breadcrumb .sep {
+      color: var(--text-muted);
+    }
+
+    .breadcrumb .current {
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    /* Main container */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 32px 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Page titles */
+    .page-title {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, var(--text-primary), var(--accent-gold));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .page-subtitle {
+      font-size: 15px;
+      color: var(--text-secondary);
+      margin-bottom: 32px;
+    }
+
+    /* Cards grid */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent-purple), var(--accent-blue));
+      opacity: 0;
+      transition: opacity 0.25s;
+    }
+
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-glow);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    .card:hover::before {
+      opacity: 1;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .card-badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--accent-blue);
+    }
+
+    .card-meta {
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .card-meta span {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Encounter cards */
+    .encounter-card {
+      cursor: pointer;
+    }
+
+    .encounter-result {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .encounter-result.kill {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--accent-green);
+    }
+
+    .encounter-result.wipe {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--accent-red);
+    }
+
+    .encounter-result.timed {
+      background: rgba(240, 178, 50, 0.15);
+      color: var(--accent-gold);
+    }
+
+    .encounter-duration {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .key-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(59, 130, 246, 0.2));
+      color: var(--accent-purple);
+      border: 1px solid rgba(139, 92, 246, 0.3);
+    }
+
+    .boss-list {
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .boss-chip {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-secondary);
+    }
+
+    .boss-chip.killed {
+      border-color: rgba(34, 197, 94, 0.3);
+      color: var(--accent-green);
+    }
+
+    .boss-chip.wiped {
+      border-color: rgba(239, 68, 68, 0.3);
+      color: var(--accent-red);
+    }
+
+    /* Stats section */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--accent-gold);
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Tab navigation */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 0;
+      flex-wrap: wrap;
+    }
+
+    /* Replay tab styles */
+    .replay-container {
+      padding: 16px 0;
+    }
+
+    .replay-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px 16px;
+    }
+
+    .replay-controls button {
+      background: var(--accent-purple);
+      border: none;
+      color: #fff;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+
+    .replay-controls button:hover {
+      background: rgba(139, 92, 246, 0.8);
+    }
+
+    .replay-slider {
+      flex: 1;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--bg-secondary);
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .replay-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent-purple);
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(139, 92, 246, 0.5);
+    }
+
+    .replay-time {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      min-width: 100px;
+      text-align: center;
+    }
+
+    .replay-speed {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 4px 8px;
+      cursor: pointer;
+      min-width: 40px;
+      text-align: center;
+    }
+
+    .replay-speed:hover {
+      color: var(--text-primary);
+      border-color: var(--border-glow);
+    }
+
+    .replay-death-markers {
+      position: relative;
+      height: 12px;
+      margin: -8px 64px 8px 64px;
+    }
+
+    .replay-death-marker {
+      position: absolute;
+      top: 0;
+      font-size: 10px;
+      transform: translateX(-50%);
+      cursor: default;
+    }
+
+    /* Position map */
+    .replay-map-section {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .replay-map-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .replay-map-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .replay-map-canvas {
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      width: 100%;
+      aspect-ratio: 1;
+      display: block;
+    }
+
+    /* Raid frames */
+    .replay-raid-frames {
+      width: 100%;
+    }
+
+    .replay-raid-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .replay-frames-grid {
+      display: grid;
+      gap: 3px;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    }
+
+    .raid-frame {
+      position: relative;
+      height: 44px;
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: default;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: opacity 0.15s;
+    }
+
+    .raid-frame.dead {
+      opacity: 0.45;
+    }
+
+    .raid-frame-bg {
+      position: absolute;
+      inset: 0;
+      opacity: 0.35;
+    }
+
+    .raid-frame-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      transition: width 0.15s ease;
+    }
+
+    .raid-frame-deficit {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      transition: width 0.15s ease;
+    }
+
+    .raid-frame-content {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+    }
+
+    .raid-frame-name {
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    .raid-frame-hp {
+      font-size: 9px;
+      color: rgba(255, 255, 255, 0.7);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    }
+
+    .raid-frame-dead-icon {
+      font-size: 18px;
+      text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+    }
+
+    .replay-boss-hp {
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+    }
+
+    .replay-boss-hp-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .replay-boss-hp-bar {
+      height: 24px;
+      background: var(--bg-secondary);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .replay-boss-hp-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #ef4444, #f97316);
+      border-radius: 6px;
+      transition: width 0.15s ease;
+    }
+
+    .replay-boss-hp-text {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    }
+
+    .tab {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: -1px;
+    }
+
+    .tab:hover {
+      color: var(--text-primary);
+    }
+
+    .tab.active {
+      color: var(--accent-gold);
+      border-bottom-color: var(--accent-gold);
+    }
+
+    /* Data table */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .data-table th {
+      text-align: left;
+      padding: 12px 16px;
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      position: sticky;
+      top: 64px;
+    }
+
+    .data-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(30, 38, 66, 0.5);
+      transition: background 0.15s;
+    }
+
+    .data-table tr:hover td {
+      background: rgba(139, 92, 246, 0.05);
+    }
+
+    .data-table .num {
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+
+    .data-table .bar-cell {
+      padding: 12px 16px;
+      min-width: 200px;
+    }
+
+    /* DPS/HPS bars */
+    .bar-container {
+      position: relative;
+      height: 24px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      border-radius: 4px;
+      transition: width 0.5s ease;
+      min-width: 2px;
+    }
+
+    .bar-label {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Death timeline */
+    .death-item {
+      padding: 0;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      margin-bottom: 8px;
+      transition: all 0.2s;
+      overflow: hidden;
+    }
+
+    .death-item:hover {
+      border-color: rgba(239, 68, 68, 0.3);
+      background: var(--bg-card-hover);
+    }
+
+    .death-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 18px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .death-header .expand-icon {
+      color: var(--text-muted);
+      font-size: 12px;
+      transition: transform 0.2s;
+      min-width: 16px;
+    }
+
+    .death-header.expanded .expand-icon {
+      transform: rotate(90deg);
+    }
+
+    .death-time {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent-red);
+      min-width: 60px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .death-player {
+      font-weight: 600;
+      color: var(--text-primary);
+      min-width: 180px;
+    }
+
+    .death-source {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .death-recap {
+      display: none;
+      padding: 0 18px 14px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .death-recap.visible {
+      display: block;
+    }
+
+    .recap-event {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 0;
+      font-size: 13px;
+      border-bottom: 1px solid rgba(30, 38, 66, 0.3);
+    }
+
+    .recap-event:last-child {
+      border-bottom: none;
+    }
+
+    .recap-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      min-width: 50px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .recap-type {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+      min-width: 50px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .recap-type.damage {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--accent-red);
+    }
+
+    .recap-type.healing {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--accent-green);
+    }
+
+    .recap-type.buff_applied {
+      background: rgba(34, 211, 238, 0.15);
+      color: var(--accent-cyan);
+    }
+
+    .recap-type.buff_removed {
+      background: rgba(249, 115, 22, 0.15);
+      color: var(--accent-orange);
+    }
+
+    .recap-amount {
+      font-weight: 600;
+      min-width: 70px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .recap-amount.damage {
+      color: var(--accent-red);
+    }
+
+    .recap-amount.healing {
+      color: var(--accent-green);
+    }
+
+    .recap-spell {
+      color: var(--accent-blue);
+      text-decoration: none;
+      flex: 1;
+    }
+
+    .recap-spell:hover {
+      text-decoration: underline;
+    }
+
+    .recap-source {
+      color: var(--text-secondary);
+      font-size: 12px;
+      min-width: 120px;
+      text-align: right;
+    }
+
+    .recap-hp {
+      min-width: 100px;
+    }
+
+    .recap-hp-bar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .recap-hp-track {
+      width: 60px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .recap-hp-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.1s;
+    }
+
+    .recap-hp-text {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      min-width: 30px;
+    }
+
+    /* Ability breakdown */
+    .ability-link {
+      color: var(--accent-blue);
+      transition: color 0.2s;
+    }
+
+    .ability-link:hover {
+      color: var(--accent-purple);
+      text-decoration: underline;
+    }
+
+    .ability-cell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+    }
+
+    .spell-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      flex-shrink: 0;
+      image-rendering: auto;
+    }
+
+    .spell-tooltip-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spell-tooltip {
+      position: fixed;
+      min-width: 280px;
+      max-width: 360px;
+      padding: 12px 14px;
+      background: rgba(20, 20, 35, 0.97);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      z-index: 10000;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.12s;
+    }
+
+    .spell-tooltip.visible {
+      opacity: 1;
+    }
+
+    .spell-tooltip-name {
+      font-weight: 700;
+      font-size: 14px;
+      color: #fff;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .spell-tooltip-desc {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.7);
+      line-height: 1.5;
+    }
+
+    .spell-tooltip-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    /* Loading */
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 20px;
+      gap: 20px;
+    }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--border-color);
+      border-top-color: var(--accent-gold);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .loading-text {
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+
+    .loading-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-secondary);
+    }
+
+    .empty-state .icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    .empty-state .title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+
+    /* Back button */
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      margin-bottom: 24px;
+    }
+
+    .back-btn:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+      border-color: var(--border-glow);
+    }
+
+    /* Player rank */
+    .rank {
+      font-weight: 700;
+      color: var(--text-muted);
+      width: 30px;
+      text-align: center;
+    }
+
+    .rank-1 {
+      color: var(--accent-gold);
+    }
+
+    .rank-2 {
+      color: #c0c0c0;
+    }
+
+    .rank-3 {
+      color: #cd7f32;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .card-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .header-inner {
+        flex-direction: column;
+        height: auto;
+        padding: 12px 0;
+        gap: 8px;
+      }
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg-primary);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    /* Animate in */
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-in {
+      animation: fadeIn 0.3s ease forwards;
+    }
+
+    /* Toast notification */
+    .toast {
+      position: fixed;
+      top: 70px;
+      right: 20px;
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      z-index: 9999;
+      opacity: 0;
+      transform: translateX(100px);
+      transition: all 0.3s ease;
+      pointer-events: none;
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .toast.cache-hit {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+      border-color: rgba(34, 197, 94, 0.3);
+    }
+
+    .toast.cache-miss {
+      background: rgba(59, 130, 246, 0.15);
+      color: #3b82f6;
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+
+    /* Expandable ability panel */
+    .ability-panel {
+      background: rgba(0, 0, 0, 0.3);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 4px 0;
+    }
+
+    .ability-row:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .player-row:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .detail-row td {
+      background: rgba(0, 0, 0, 0.15);
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="header">
+    <div class="header-inner">
+      <div class="logo" onclick="navigateTo('logs')" id="headerLogo">
+        <img src="/favicon.png" id="headerLogoImg" style="width:28px;height:28px;border-radius:6px;object-fit:cover"
+          alt="Logo" />
+        Fast WoW Combat Analyzer
+      </div>
+      <div class="breadcrumb" id="breadcrumb"></div>
+      <button onclick="refreshPage()"
+        style="background:var(--bg-card);border:1px solid var(--border-color);color:var(--text-secondary);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:5px;transition:all 0.2s"
+        onmouseover="this.style.background='var(--bg-card-hover)';this.style.color='var(--text-primary)'"
+        onmouseout="this.style.background='var(--bg-card)';this.style.color='var(--text-secondary)'">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <div class="container" id="app">
+    <div class="loading">
+      <div class="spinner"></div>
+      <div class="loading-text">Loading log files...</div>
+    </div>
+  </div>
+
+  <footer style="text-align:center;padding:18px 0 14px;color:var(--text-muted);font-size:12px;letter-spacing:0.5px">
+    Made with ♥ by D4GGe &nbsp;•&nbsp; v0.1.0
+  </footer>
+
+  <!-- Global spell tooltip (position:fixed, never clipped) -->
+  <div id="spell-tooltip-global" class="spell-tooltip"></div>
+
+  <script>
+    // ========== State ==========
+    let currentView = 'logs';
+    let currentFilename = null;
+    let currentSummary = null;
+    let spellTooltips = {};
+    let spellTooltipsByName = {}; // fallback: lowercase spell name -> tooltip
+
+    // Load spell tooltips and build name-based fallback index
+    fetch('/api/spell_tooltips').then(r => r.ok ? r.json() : {}).then(data => {
+      spellTooltips = data || {};
+      // Build name lookup — only store entries that have actual data
+      for (const [id, tt] of Object.entries(spellTooltips)) {
+        if (tt.name && (tt.icon_url || tt.description)) {
+          const key = tt.name.toLowerCase();
+          // Keep the one with the most data (prefer entries with both icon and description)
+          const existing = spellTooltipsByName[key];
+          if (!existing || (!existing.icon_url && tt.icon_url) || (!existing.description && tt.description)) {
+            spellTooltipsByName[key] = tt;
+          }
+        }
+      }
+    }).catch(() => { });
+
+    // Lookup helper: try spell_id first, then fall back to name match
+    function getSpellTooltip(spellId, spellName) {
+      const byId = spellTooltips[String(spellId)];
+      if (byId && (byId.icon_url || byId.description)) return byId;
+      if (spellName) {
+        const byName = spellTooltipsByName[spellName.toLowerCase()];
+        if (byName) return byName;
+      }
+      return null;
+    }
+
+    // Reusable: render spell icon + name with tooltip
+    function spellHtml(spellId, spellName, wowheadUrl, opts) {
+      opts = opts || {};
+      const tt = getSpellTooltip(spellId, spellName) || {};
+      const linkColor = opts.color || 'var(--accent-gold)';
+      const iconSize = opts.iconSize || 18;
+      const iconHtml = tt.icon_url ? `<img class="spell-icon" src="${tt.icon_url}" alt="" loading="lazy" style="width:${iconSize}px;height:${iconSize}px">` : '';
+      const nameHtml = wowheadUrl
+        ? `<a href="${wowheadUrl}" target="_blank" style="color:${linkColor};text-decoration:none;font-weight:500" ${opts.stopClick ? 'onclick="event.stopPropagation()"' : ''}>${spellName}</a>`
+        : `<span style="color:${linkColor};font-weight:500">${spellName}</span>`;
+      const hasTooltip = tt.name || tt.description;
+      const dataAttr = hasTooltip ? ` data-spell-id="${spellId}" data-spell-name="${spellName}"` : '';
+      return `<div class="spell-tooltip-wrap"${dataAttr}>${iconHtml}${nameHtml}</div>`;
+    }
+
+    // Global tooltip logic
+    (function () {
+      const tip = document.getElementById('spell-tooltip-global');
+      let activeWrap = null;
+
+      document.addEventListener('mouseover', function (e) {
+        const wrap = e.target.closest('.spell-tooltip-wrap[data-spell-id]');
+        if (!wrap || wrap === activeWrap) return;
+        activeWrap = wrap;
+        const sid = wrap.getAttribute('data-spell-id');
+        const sname = wrap.getAttribute('data-spell-name');
+        const tt = getSpellTooltip(sid, sname);
+        if (!tt || (!tt.name && !tt.description)) { tip.classList.remove('visible'); return; }
+        tip.innerHTML = `<div class="spell-tooltip-name">${tt.icon_url ? `<img class="spell-tooltip-icon" src="${tt.icon_url}">` : ''}${tt.name || sname}</div>${tt.description ? `<div class="spell-tooltip-desc">${tt.description}</div>` : ''}`;
+        const rect = wrap.getBoundingClientRect();
+        let top = rect.top - tip.offsetHeight - 8;
+        let left = rect.left;
+        // If tooltip would go off top, show below instead
+        if (top < 4) top = rect.bottom + 8;
+        // Keep within viewport horizontally
+        if (left + 360 > window.innerWidth) left = window.innerWidth - 370;
+        if (left < 4) left = 4;
+        tip.style.top = top + 'px';
+        tip.style.left = left + 'px';
+        tip.classList.add('visible');
+      });
+
+      document.addEventListener('mouseout', function (e) {
+        const wrap = e.target.closest('.spell-tooltip-wrap[data-spell-id]');
+        if (wrap && wrap === activeWrap) {
+          // Check if we moved to a child of the same wrap
+          if (!wrap.contains(e.relatedTarget)) {
+            activeWrap = null;
+            tip.classList.remove('visible');
+          }
+        }
+      });
+    })();
+
+    async function refreshPage() {
+      if ((currentView === 'encounter' || currentView === 'encounters') && currentFilename) {
+        // Save current state
+        const savedEncIndex = window.__currentEnc ? window.__currentEnc.index : null;
+        const savedTab = window.__currentTab || 'damage';
+        const savedView = currentView;
+
+        // Re-fetch from server (re-reads log file from disk)
+        const app = document.getElementById('app');
+        app.innerHTML = `<div class="loading"><div class="spinner"></div><div class="loading-text">Re-reading log file...</div></div>`;
+        try {
+          const res = await fetch(`/api/logs/${encodeURIComponent(currentFilename)}/summary`, { cache: 'no-store' });
+          if (!res.ok) throw new Error(await res.text());
+
+          // Read cache headers
+          const cacheStatus = res.headers.get('X-Cache-Status') || 'UNKNOWN';
+          const parseTime = res.headers.get('X-Parse-Time') || '0';
+
+          const summary = await res.json();
+          currentSummary = summary;
+
+          if (savedView === 'encounter' && savedEncIndex !== null && summary.encounters[savedEncIndex]) {
+            // Go back to same encounter + same tab
+            renderEncounterDetail(summary.encounters[savedEncIndex]);
+            // Restore tab after render
+            const tabBtn = document.querySelector(`.tab[onclick*="'${savedTab}'"]`);
+            if (tabBtn) showTab(savedTab, tabBtn);
+          } else {
+            loadEncounters(currentFilename);
+          }
+
+          // Show toast
+          if (cacheStatus === 'HIT') {
+            showToast('📦 Cached — no changes detected', 'cache-hit');
+          } else {
+            showToast(`✅ Re-parsed in ${parseTime}s`, 'cache-miss');
+          }
+        } catch (e) {
+          app.innerHTML = `<div class="empty-state"><div class="icon">❌</div><div class="title">Error</div><p>${e.message}</p></div>`;
+        }
+      } else {
+        loadLogFiles();
+      }
+    }
+
+
+
+    function showToast(message, className) {
+      let toast = document.getElementById('refresh-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'refresh-toast';
+        toast.className = 'toast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = message;
+      toast.className = `toast ${className}`;
+      // Force reflow then show
+      void toast.offsetWidth;
+      toast.classList.add('show');
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    function classColor(className) {
+      const map = {
+        'Warrior': '#C79C6E', 'Paladin': '#F58CBA', 'Hunter': '#ABD473', 'Rogue': '#FFF569',
+        'Priest': '#FFFFFF', 'Death Knight': '#C41F3B', 'Shaman': '#0070DE', 'Mage': '#69CCF0',
+        'Warlock': '#9482C9', 'Monk': '#00FF96', 'Druid': '#FF7D0A', 'Demon Hunter': '#A330C9',
+        'Evoker': '#33937F'
+      };
+      return map[className] || 'var(--text-primary)';
+    }
+
+    function roleIcon(role) {
+      if (role === 'tank') return '<span title="Tank" style="font-size:12px;margin-right:4px">🛡️</span>';
+      if (role === 'healer') return '<span title="Healer" style="font-size:12px;margin-right:4px">💚</span>';
+      return '<span title="DPS" style="font-size:12px;margin-right:4px">⚔️</span>';
+    }
+
+    // ========== Navigation ==========
+    function navigateTo(view, params = {}) {
+      currentView = view;
+      // Dynamic header logo
+      const logoImg = document.getElementById('headerLogoImg');
+      if (view === 'logs') {
+        logoImg.style.display = 'none';
+      } else {
+        logoImg.src = '/favicon.png';
+        logoImg.style.display = '';
+      }
+      switch (view) {
+        case 'logs':
+          currentFilename = null;
+          currentSummary = null;
+          loadLogFiles();
+          break;
+        case 'encounters':
+          currentFilename = params.filename;
+          loadEncounters(params.filename);
+          break;
+        case 'encounter':
+          renderEncounterDetail(params.encounter);
+          break;
+      }
+    }
+
+    function updateBreadcrumb(parts) {
+      const bc = document.getElementById('breadcrumb');
+      bc.innerHTML = parts.map((p, i) => {
+        if (i === parts.length - 1) return `<span class="current">${p.label}</span>`;
+        return `<a href="#" onclick="${p.onclick}; return false;">${p.label}</a><span class="sep">›</span>`;
+      }).join('');
+    }
+
+    // ========== Log Files List ==========
+    async function loadLogFiles() {
+      const app = document.getElementById('app');
+      app.innerHTML = `<div class="loading"><div class="spinner"></div><div class="loading-text">Loading log files...</div></div>`;
+      updateBreadcrumb([{ label: 'Log Files' }]);
+
+      try {
+        const res = await fetch('/api/logs');
+        const logs = await res.json();
+
+        if (logs.length === 0) {
+          app.innerHTML = `<div class="empty-state"><div class="icon">📂</div><div class="title">No log files found</div><p>Place WoWCombatLog files in the configured directory.</p></div>`;
+          return;
+        }
+
+        app.innerHTML = `
+      <div style="text-align:center;padding:30px 0 10px">
+        <img src="/logo.png" style="width:512px;max-width:90%;height:auto;border-radius:12px;object-fit:contain" alt="Fast WoW Combat Analyzer" />
+      </div>
+      <h1 class="page-title">Combat Log Files</h1>
+      <p class="page-subtitle">${logs.length} log files found — click one to analyze</p>
+      <div class="card-grid">${logs.map(log => `
+        <div class="card animate-in" onclick="navigateTo('encounters', {filename: '${log.filename}'})">
+          <div class="card-header">
+            <div class="card-title">📜 ${log.date_str}</div>
+            <div class="card-badge">${log.size_display}</div>
+          </div>
+          <div class="card-meta">
+            <span>📄 ${log.filename}</span>
+          </div>
+        </div>
+      `).join('')}</div>
+    `;
+      } catch (e) {
+        app.innerHTML = `<div class="empty-state"><div class="icon">❌</div><div class="title">Error loading logs</div><p>${e.message}</p></div>`;
+      }
+    }
+
+    // ========== Encounters List ==========
+    async function loadEncounters(filename) {
+      const app = document.getElementById('app');
+      app.innerHTML = `<div class="loading"><div class="spinner"></div><div class="loading-text">Parsing combat log...</div><div class="loading-sub">This may take a moment for large files</div></div>`;
+      updateBreadcrumb([
+        { label: 'Log Files', onclick: "navigateTo('logs')" },
+        { label: filename }
+      ]);
+
+      try {
+        const res = await fetch(`/api/logs/${encodeURIComponent(filename)}/summary`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(await res.text());
+        const summary = await res.json();
+        currentSummary = summary;
+
+        if (summary.encounters.length === 0) {
+          app.innerHTML = `
+        <a class="back-btn" onclick="navigateTo('logs')">← Back to logs</a>
+        <div class="empty-state"><div class="icon">🔍</div><div class="title">No encounters found</div><p>This log file doesn't contain any boss encounters.</p></div>
+      `;
+          return;
+        }
+
+        const bossEncs = summary.encounters.filter(e => e.encounter_type !== 'trash');
+        const kills = bossEncs.filter(e => e.success).length;
+        const wipes = bossEncs.filter(e => !e.success).length;
+        const zones = [...new Set(summary.zone_changes.map(z => z.zone_name))];
+
+        app.innerHTML = `
+      <a class="back-btn" onclick="navigateTo('logs')">← Back to logs</a>
+      <h1 class="page-title">${zones.join(', ') || filename}</h1>
+      <p class="page-subtitle">${bossEncs.length} encounters — ${kills} kills, ${wipes} wipes</p>
+
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-value">${bossEncs.length}</div><div class="stat-label">Encounters</div></div>
+        <div class="stat-card"><div class="stat-value" style="color:var(--accent-green)">${kills}</div><div class="stat-label">Kills</div></div>
+        <div class="stat-card"><div class="stat-value" style="color:var(--accent-red)">${wipes}</div><div class="stat-label">Wipes</div></div>
+        <div class="stat-card"><div class="stat-value">${zones.length}</div><div class="stat-label">Zones</div></div>
+      </div>
+
+      <div class="card-grid">${(() => {
+            // Separate M+ and raid encounters
+            const mplusEncs = summary.encounters.filter(e => e.encounter_type === 'mythic_plus');
+            const raidEncs = summary.encounters.filter(e => e.encounter_type !== 'mythic_plus');
+
+            let html = '';
+
+            // --- Render M+ keys as individual cards ---
+            if (mplusEncs.length > 0) {
+              html += mplusEncs.map((enc, i) => `
+            <div class="card encounter-card animate-in" style="animation-delay:${i * 30}ms" onclick="navigateTo('encounter', {encounter: currentSummary.encounters[${enc.index}]})">
+              <div class="card-header">
+                <div class="card-title">🗝️ ${enc.name}</div>
+                <div style="display:flex;gap:6px;align-items:center">
+                  ${enc.key_level ? `<span class="key-badge">+${enc.key_level}</span>` : ''}
+                  <span class="encounter-result ${enc.success ? 'kill' : 'wipe'}">${enc.success ? '✓ Timed' : '✗ Depleted'}</span>
+                </div>
+              </div>
+              <div class="card-meta">
+                <span>⏱ ${formatDuration(enc.duration_secs)}</span>
+                <span>⚔️ ${enc.difficulty_name}</span>
+                <span>👥 ${enc.group_size} players</span>
+                ${enc.deaths.length > 0 ? `<span>💀 ${enc.deaths.length} deaths</span>` : ''}
+              </div>
+              ${enc.boss_encounters && enc.boss_encounters.length > 0 ? `
+                <div class="boss-list">
+                  ${enc.boss_encounters.map(b => `<span class="boss-chip ${b.success ? 'killed' : 'wiped'}">${b.success ? '✓' : '✗'} ${b.name}</span>`).join('')}
+                </div>
+              ` : ''}
+            </div>
+          `).join('');
+            }
+
+            // --- Render raid encounters grouped by session and boss ---
+            if (raidEncs.length > 0) {
+              // Find which zone each encounter belongs to by matching timestamps
+              const zc = (summary.zone_changes || []).slice().sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+              function zoneFor(enc) {
+                let zone = '';
+                const t = new Date(enc.start_time);
+                for (const z of zc) { if (new Date(z.timestamp) <= t) zone = z.zone_name; else break; }
+                return zone;
+              }
+
+              // Split into sessions: gap > 30 min OR difficulty change OR zone change
+              const sessions = [];
+              let currentSession = [raidEncs[0]];
+              for (let i = 1; i < raidEncs.length; i++) {
+                const prev = raidEncs[i - 1];
+                const curr = raidEncs[i];
+                const gapMin = (new Date(curr.start_time) - new Date(prev.end_time || prev.start_time)) / 60000;
+                const diffChanged = curr.difficulty_id !== prev.difficulty_id;
+                const zoneChanged = zoneFor(curr) !== zoneFor(prev);
+                if (gapMin > 30 || diffChanged || zoneChanged) {
+                  sessions.push(currentSession);
+                  currentSession = [curr];
+                } else {
+                  currentSession.push(curr);
+                }
+              }
+              sessions.push(currentSession);
+
+              sessions.forEach((session, si) => {
+                const sessionStart = session[0].start_time;
+                const sessionEnd = session[session.length - 1].end_time || session[session.length - 1].start_time;
+                const sKills = session.filter(e => e.success && e.encounter_type !== 'trash').length;
+                const sWipes = session.filter(e => !e.success && e.encounter_type !== 'trash').length;
+                const sessionZone = zoneFor(session[0]);
+                const sessionDiff = session[0].difficulty_name;
+
+                // Session time formatting
+                const startD = new Date(sessionStart);
+                const endD = new Date(sessionEnd);
+                const timeFmt = d => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const dateFmt = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+                // Session header
+                html += `
+              <div style="grid-column:1/-1;margin:${si > 0 ? '24px' : '0'} 0 8px 0">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+                  <div style="height:1px;flex:1;background:var(--border-color)"></div>
+                  <div style="font-size:14px;font-weight:600;color:var(--accent-gold);text-transform:uppercase;letter-spacing:1px;white-space:nowrap">
+                    ${sessionZone || 'Raid'}${sessionDiff ? ' — ' + sessionDiff : ''}
+                  </div>
+                  <div style="height:1px;flex:1;background:var(--border-color)"></div>
+                </div>
+                <div style="display:flex;justify-content:center;gap:20px;font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+                  <span>📅 ${dateFmt(startD)}</span>
+                  <span>🟢 Start ${timeFmt(startD)}</span>
+                  <span>🔴 End ${timeFmt(endD)}</span>
+                  <span style="color:var(--accent-green)">✓ ${sKills} kills</span>
+                  <span style="color:var(--accent-red)">✗ ${sWipes} wipes</span>
+                </div>
+              </div>
+            `;
+
+                // Separate bosses and trash, render in chronological order
+                const bossOrder = [];
+                const bossMap = {};
+                const renderOrder = [];
+
+                session.forEach(enc => {
+                  if (enc.encounter_type === 'trash') {
+                    renderOrder.push({ type: 'trash', enc });
+                  } else {
+                    if (!bossMap[enc.name]) {
+                      bossMap[enc.name] = [];
+                      bossOrder.push(enc.name);
+                      renderOrder.push({ type: 'boss', name: enc.name });
+                    }
+                    bossMap[enc.name].push(enc);
+                  }
+                });
+
+                renderOrder.forEach((item, bi) => {
+                  if (item.type === 'trash') {
+                    const t = item.enc;
+                    const totalDmg = t.players.reduce((s, p) => s + p.damage_done, 0);
+                    html += `
+                <div class="animate-in" style="animation-delay:${bi * 30}ms;cursor:pointer;grid-column:1/-1;padding:8px 16px;border-radius:8px;border:1px dashed var(--border-color);opacity:0.6;display:flex;align-items:center;gap:16px;font-size:13px;color:var(--text-secondary);transition:all 0.15s"
+                  onclick="navigateTo('encounter', {encounter: currentSummary.encounters[${t.index}]})"
+                  onmouseover="this.style.opacity='0.9';this.style.borderColor='var(--border-glow)'"
+                  onmouseout="this.style.opacity='0.6';this.style.borderColor='var(--border-color)'">
+                  <span>🗑️ ${t.name}</span>
+                  <span style="color:var(--text-muted)">⏱ ${formatDuration(t.duration_secs)}</span>
+                  <span style="color:var(--text-muted)">⚔️ ${formatNumber(totalDmg)}</span>
+                  ${t.deaths.length > 0 ? `<span style="color:var(--text-muted)">💀 ${t.deaths.length}</span>` : ''}
+                  <span style="color:var(--text-muted)">${t.players.length} players</span>
+                </div>
+              `;
+                  } else {
+                    const pulls = bossMap[item.name];
+                    const killCount = pulls.filter(p => p.success).length;
+                    const wipeCount = pulls.filter(p => !p.success).length;
+                    const bestTime = Math.min(...pulls.filter(p => p.duration_secs > 0).map(p => p.duration_secs));
+                    const diff = pulls[0].difficulty_name;
+                    const groupSize = pulls[0].group_size;
+
+                    html += `
+                <div class="card animate-in" style="animation-delay:${bi * 30}ms;cursor:default">
+                  <div class="card-header" style="margin-bottom:10px">
+                    <div class="card-title">⚔️ ${item.name}</div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                      ${killCount > 0 ? `<span class="encounter-result kill">✓ ${killCount > 1 ? killCount + ' Kills' : 'Kill'}</span>` : ''}
+                      ${wipeCount > 0 ? `<span class="encounter-result wipe">✗ ${wipeCount} ${wipeCount === 1 ? 'Wipe' : 'Wipes'}</span>` : ''}
+                    </div>
+                  </div>
+                  <div class="card-meta" style="margin-bottom:10px">
+                    <span>⚔️ ${diff}</span>
+                    <span>👥 ${groupSize} players</span>
+                    <span>${pulls.length} ${pulls.length === 1 ? 'pull' : 'pulls'}</span>
+                    ${bestTime < Infinity ? `<span>⏱ Best: ${formatDuration(bestTime)}</span>` : ''}
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:4px">
+                    ${pulls.map((p, pi) => `
+                      <div onclick="navigateTo('encounter', {encounter: currentSummary.encounters[${p.index}]})"
+                        style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-secondary);border-radius:8px;cursor:pointer;border:1px solid var(--border-color);transition:all 0.15s"
+                        onmouseover="this.style.background='var(--bg-card-hover)';this.style.borderColor='var(--border-glow)'"
+                        onmouseout="this.style.background='var(--bg-secondary)';this.style.borderColor='var(--border-color)'">
+                        <div style="display:flex;align-items:center;gap:10px">
+                          <span style="color:var(--text-muted);font-size:12px;min-width:50px">Pull ${pi + 1}</span>
+                          <span style="font-size:13px">${formatDuration(p.duration_secs)}</span>
+                          ${p.deaths.length > 0 ? `<span style="font-size:12px;color:var(--text-secondary)">💀 ${p.deaths.length}</span>` : ''}
+                        </div>
+                        <span class="encounter-result ${p.success ? 'kill' : 'wipe'}" style="font-size:11px;padding:2px 8px">${p.success ? '✓ Kill' : '✗ Wipe'}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              `;
+                  }
+                });
+              });
+            }
+
+            return html;
+          })()}</div>
+      `;
+      } catch (e) {
+        app.innerHTML = `<div class="empty-state"><div class="icon">❌</div><div class="title">Error parsing log</div><p>${e.message}</p></div>`;
+      }
+    }
+
+    // ========== Encounter Detail ==========
+    function renderEncounterDetail(enc) {
+      const app = document.getElementById('app');
+      updateBreadcrumb([
+        { label: 'Log Files', onclick: "navigateTo('logs')" },
+        { label: currentFilename, onclick: `navigateTo('encounters', { filename: '${currentFilename}' })` },
+        { label: enc.name }
+      ]);
+
+      const maxDmg = Math.max(...enc.players.map(p => p.damage_done), 1);
+      const maxHeal = Math.max(...enc.players.map(p => p.healing_done), 1);
+
+      app.innerHTML = `
+      <a class="back-btn" onclick="navigateTo('encounters', {filename: '${currentFilename}'})">← Back to encounters</a>
+
+        ${(() => {
+          // Only show timeline for raid encounters
+          if (enc.encounter_type === 'mythic_plus' || !currentSummary) return '';
+
+          // Find the session this encounter belongs to, using same grouping logic
+          const allRaid = currentSummary.encounters.filter(e => e.encounter_type !== 'mythic_plus');
+          if (allRaid.length <= 1) return '';
+
+          const zc = (currentSummary.zone_changes || []).slice().sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          function zoneFor(e) {
+            let zone = '';
+            const t = new Date(e.start_time);
+            for (const z of zc) { if (new Date(z.timestamp) <= t) zone = z.zone_name; else break; }
+            return zone;
+          }
+
+          // Split into sessions
+          const sessions = [];
+          let cur = [allRaid[0]];
+          for (let i = 1; i < allRaid.length; i++) {
+            const prev = allRaid[i - 1], c = allRaid[i];
+            const gap = (new Date(c.start_time) - new Date(prev.end_time || prev.start_time)) / 60000;
+            if (gap > 30 || c.difficulty_id !== prev.difficulty_id || zoneFor(c) !== zoneFor(prev)) {
+              sessions.push(cur); cur = [c];
+            } else { cur.push(c); }
+          }
+          sessions.push(cur);
+
+          // Find which session contains our encounter
+          const mySession = sessions.find(s => s.some(e => e.index === enc.index));
+          if (!mySession || mySession.length <= 1) return '';
+
+          // Per-boss pull numbering
+          const bossCounts = {};
+          const pullLabels = mySession.map(e => {
+            bossCounts[e.name] = (bossCounts[e.name] || 0) + 1;
+            return { enc: e, pullNum: bossCounts[e.name] };
+          });
+
+          return `
+        <div style="margin:12px 0 16px;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--border-color) transparent">
+          <div style="display:flex;gap:4px;padding:4px 0;min-width:max-content">
+            ${pullLabels.map(({ enc: e, pullNum }) => {
+            const isCurrent = e.index === enc.index;
+            const abbr = e.name.length > 14 ? e.name.substring(0, 12) + '..' : e.name;
+            const bg = isCurrent
+              ? (e.encounter_type === 'trash' ? 'rgba(100,100,100,0.15)' : e.success ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)')
+              : 'var(--bg-card)';
+            const border = isCurrent
+              ? (e.encounter_type === 'trash' ? 'var(--text-muted)' : e.success ? 'var(--accent-green)' : 'var(--accent-red)')
+              : 'var(--border-color)';
+            const glow = isCurrent ? 'box-shadow:0 0 8px ' + (e.encounter_type === 'trash' ? 'rgba(100,100,100,0.3)' : e.success ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)') + ';' : '';
+            return `<div onclick="navigateTo('encounter', {encounter: currentSummary.encounters[${e.index}]})"
+                style="padding:6px 10px;border-radius:8px;cursor:pointer;border:1.5px solid ${border};background:${bg};${glow}transition:all 0.15s;white-space:nowrap;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:70px"
+                onmouseover="if(!${isCurrent})this.style.borderColor='var(--border-glow)'"
+                onmouseout="if(!${isCurrent})this.style.borderColor='var(--border-color)'">
+                <span style="font-weight:600;color:${e.encounter_type === 'trash' ? 'var(--text-muted)' : e.success ? 'var(--accent-green)' : 'var(--accent-red)'}">${e.encounter_type === 'trash' ? '🗑️' : e.success ? '✓ Kill' : '✗ P' + pullNum}${!e.success && e.encounter_type !== 'trash' && e.boss_hp_pct != null ? ' ' + e.boss_hp_pct.toFixed(1) + '%' : ''}</span>
+                <span style="color:var(--text-secondary);font-size:11px">${abbr}</span>
+                <span style="color:var(--text-muted);font-size:10px">${formatDuration(e.duration_secs)}</span>
+              </div>`;
+          }).join('')}
+          </div>
+        </div>`;
+        })()
+        }
+
+    <h1 class="page-title">${enc.encounter_type === 'mythic_plus' ? '🗝️' : enc.encounter_type === 'trash' ? '🗑️' : '⚔️'} ${enc.name}</h1>
+    <p class="page-subtitle">
+      ${enc.encounter_type !== 'trash' ? `<span class="encounter-result ${enc.success ? 'kill' : 'wipe'}" style="font-size:13px">${enc.encounter_type === 'mythic_plus' ? (enc.success ? '✓ Timed' : '✗ Depleted') : (enc.success ? '✓ Kill' : '✗ Wipe')}</span>` : ''}
+      &nbsp; ${formatDuration(enc.duration_secs)} — ${enc.difficulty_name} — ${enc.group_size} players
+    </p>
+
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-value">${formatNumber(enc.players.reduce((s, p) => s + p.damage_done, 0))}</div><div class="stat-label">Total Damage</div></div>
+      ${enc.boss_max_hp ? `<div class="stat-card"><div class="stat-value" style="color:${enc.success ? 'var(--accent-green)' : 'var(--accent-orange)'}">${enc.success ? '0%' : (enc.boss_hp_pct != null ? enc.boss_hp_pct.toFixed(1) + '%' : '?')}</div><div class="stat-label">Boss HP Left (${formatNumber(enc.boss_max_hp)} max)</div></div>` : ''}
+      <div class="stat-card"><div class="stat-value" style="color:var(--accent-green)">${formatNumber(enc.players.reduce((s, p) => s + p.healing_done, 0))}</div><div class="stat-label">Total Healing</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--accent-red)">${enc.deaths.length}</div><div class="stat-label">Deaths</div></div>
+      <div class="stat-card"><div class="stat-value">${formatDuration(enc.duration_secs)}</div><div class="stat-label">Duration</div></div>
+      ${enc.boss_encounters && enc.boss_encounters.length > 0 ? `<div class="stat-card"><div class="stat-value" style="color:var(--accent-purple)">${enc.boss_encounters.filter(b => b.success).length}/${enc.boss_encounters.length}</div><div class="stat-label">Bosses Killed</div></div>` : ''}
+    </div>
+
+    ${enc.segments && enc.segments.length > 0 ? `
+    <div id="segment-filter" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--text-muted);font-weight:600">FILTER BY SEGMENT</span>
+        <button onclick="selectAllSegments()" style="font-size:11px;padding:2px 10px;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-secondary);cursor:pointer" id="seg-all-btn">All</button>
+      </div>
+      <div style="display:flex;height:28px;border-radius:8px;overflow:hidden;gap:2px">
+        ${enc.segments.map(s => {
+          const pct = (s.duration_secs / (enc.duration_secs || 1) * 100).toFixed(1);
+          const bg = s.segment_type === 'boss'
+            ? 'linear-gradient(135deg, var(--accent-purple), var(--accent-blue))'
+            : 'linear-gradient(135deg, rgba(34,197,94,0.4), rgba(34,197,94,0.2))';
+          return `<div id="segfilt-${s.index}" class="seg-filter-chip active" style="flex:${pct};background:${bg};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;min-width:18px;cursor:pointer;transition:opacity 0.2s,filter 0.2s" title="${s.name} (${formatDuration(s.duration_secs)})" onclick="toggleSegmentFilter(${s.index}, event)">${pct > 6 ? s.name : ''}</div>`;
+        }).join('')}
+      </div>
+      <div id="pull-bar"></div>
+    </div>
+    ` : ''
+        }
+
+    <div class="tabs">
+      <button class="tab${(window.__currentTab || 'damage') === 'damage' ? ' active' : ''}" onclick="showTab('damage', this)">⚔️ Damage Done</button>
+      <button class="tab${(window.__currentTab || 'damage') === 'healing' ? ' active' : ''}" onclick="showTab('healing', this)">💚 Healing Done</button>
+      <button class="tab${(window.__currentTab || 'damage') === 'taken' ? ' active' : ''}" onclick="showTab('taken', this)">🛡️ Damage Taken</button>
+      <button class="tab${(window.__currentTab || 'damage') === 'deaths' ? ' active' : ''}" onclick="showTab('deaths', this)">💀 Deaths</button>
+      <button class="tab${(window.__currentTab || 'damage') === 'abilities' ? ' active' : ''}" onclick="showTab('abilities', this)">📊 Abilities</button>
+      <button class="tab${(window.__currentTab || 'damage') === 'enemies' ? ' active' : ''}" onclick="showTab('enemies', this)">👹 Enemies</button>
+      <button class="tab${(window.__currentTab || 'damage') === 'buffs' ? ' active' : ''}" onclick="showTab('buffs', this)">🔮 Buff Uptime</button>
+      ${enc.replay_timeline && enc.replay_timeline.length > 0 ? `<button class="tab${(window.__currentTab || 'damage') === 'replay' ? ' active' : ''}" onclick="showTab('replay', this)">🎬 Replay</button>` : ''}
+    </div>
+
+    <div id="tab-content"></div>
+    `;
+
+      window.__currentEnc = enc;
+      window.__maxDmg = maxDmg;
+      window.__maxHeal = maxHeal;
+      if (!window.__currentTab) window.__currentTab = 'damage';
+      // Initialize all segments as selected
+      if (enc.segments && enc.segments.length > 0) {
+        window.__selectedSegments = new Set(enc.segments.map((_, i) => i));
+      } else {
+        window.__selectedSegments = null;
+      }
+      window.__selectedPulls = null;
+      // Render the active tab content
+      refreshCurrentTab();
+      updatePullBar();
+    }
+
+    function showTab(tab, btn) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      window.__currentTab = tab;
+      refreshCurrentTab();
+    }
+
+    function refreshCurrentTab() {
+      const content = document.getElementById('tab-content');
+      const enc = window.__currentEnc;
+      const tab = window.__currentTab || 'damage';
+      const filtered = getFilteredEncData(enc);
+
+      switch (tab) {
+        case 'damage': {
+          const maxDmg = Math.max(...filtered.players.map(p => p.damage_done), 1);
+          content.innerHTML = renderDamageTab(filtered, maxDmg);
+          break;
+        }
+        case 'healing': {
+          const maxHeal = Math.max(...filtered.players.map(p => p.healing_done), 1);
+          content.innerHTML = renderHealingTab(filtered, maxHeal);
+          break;
+        }
+        case 'taken': {
+          const maxTaken = Math.max(...filtered.players.map(p => p.damage_taken || 0), 1);
+          content.innerHTML = renderDamageTakenTab(filtered, maxTaken);
+          break;
+        }
+        case 'deaths': content.innerHTML = renderDeathsTab(filtered); break;
+        case 'abilities': content.innerHTML = renderAbilitiesTab(filtered); break;
+        case 'enemies': content.innerHTML = renderEnemiesTab(filtered); break;
+        case 'buffs': {
+          content.innerHTML = renderBuffUptimeTab(filtered);
+          let uptimes = filtered.buff_uptimes || {};
+          let buffDuration = filtered.duration_secs || 1;
+          // If pulls are selected, clip buff data to pull time window
+          if (window.__selectedPulls) {
+            const pulls = getSelectedPulls();
+            if (pulls.length > 0) {
+              let lo = Infinity, hi = -Infinity;
+              for (const pi of window.__selectedPulls) {
+                const pull = pulls[pi];
+                if (!pull) continue;
+                const pStart = pull.start_time_offset;
+                const pEnd = pStart + pull.duration_secs;
+                if (pStart < lo) lo = pStart;
+                if (pEnd > hi) hi = pEnd;
+              }
+              if (lo < Infinity) buffDuration = hi - lo;
+            }
+          }
+          const selGuid = window.__buffPlayer || (filtered.players[0] && filtered.players[0].guid);
+          const selPlayer = filtered.players.find(p => p.guid === selGuid) || filtered.players[0];
+          if (selPlayer) {
+            // Use the clipped buffs from window.__clippedBuffs if available
+            let pBuffs = (window.__clippedBuffUptimes && window.__clippedBuffUptimes[selPlayer.guid]) || uptimes[selPlayer.guid] || [];
+            const search = (window.__buffSearch || '').toLowerCase();
+            if (search) pBuffs = pBuffs.filter(b => b.spell_name.toLowerCase().includes(search) || (b.source_name || '').toLowerCase().includes(search));
+            setTimeout(() => drawBuffTimelines(pBuffs, buffDuration), 0);
+          }
+          break;
+        }
+        case 'replay': {
+          content.innerHTML = renderReplayTab(enc);
+          initReplayControls(enc);
+          break;
+        }
+      }
+    }
+
+    // Merge player data from selected segments into a virtual encounter
+    function getFilteredEncData(enc) {
+      const sel = window.__selectedSegments;
+      // If no segment filter or all selected, return original data
+      if (!sel || !enc.segments || enc.segments.length === 0 || sel.size === enc.segments.length) {
+        return enc;
+      }
+      // If none selected, also return original
+      if (sel.size === 0) return enc;
+
+      // Merge selected segments
+      const mergedPlayers = {};
+      const mergedDeaths = [];
+      let totalDuration = 0;
+      for (const idx of sel) {
+        const seg = enc.segments[idx];
+        if (!seg) continue;
+        totalDuration += seg.duration_secs;
+        for (const d of (seg.deaths || [])) {
+          mergedDeaths.push(d);
+        }
+        for (const p of (seg.players || [])) {
+          if (!mergedPlayers[p.guid]) {
+            mergedPlayers[p.guid] = {
+              guid: p.guid, name: p.name,
+              class_name: p.class_name || '', spec_name: p.spec_name || '',
+              damage_done: 0, healing_done: 0, damage_taken: 0,
+              deaths: 0, dps: 0, hps: 0,
+              abilities: [], heal_abilities: []
+            };
+          }
+          const mp = mergedPlayers[p.guid];
+          mp.damage_done += p.damage_done;
+          mp.healing_done += p.healing_done;
+          mp.damage_taken += p.damage_taken;
+          mp.deaths += p.deaths;
+          // Merge abilities
+          for (const a of (p.abilities || [])) {
+            const existing = mp.abilities.find(x => x.spell_id === a.spell_id);
+            if (existing) {
+              existing.total_amount += a.total_amount;
+              existing.hit_count += a.hit_count;
+              // Merge targets
+              for (const t of (a.targets || [])) {
+                const et = existing.targets ? existing.targets.find(x => x.target_name === t.target_name) : null;
+                if (et) { et.amount += t.amount; } else { (existing.targets = existing.targets || []).push({ ...t }); }
+              }
+            } else {
+              mp.abilities.push({ ...a, targets: (a.targets || []).map(t => ({ ...t })) });
+            }
+          }
+          // Merge heal abilities
+          for (const a of (p.heal_abilities || [])) {
+            const existing = mp.heal_abilities.find(x => x.spell_id === a.spell_id);
+            if (existing) {
+              existing.total_amount += a.total_amount;
+              existing.hit_count += a.hit_count;
+              for (const t of (a.targets || [])) {
+                const et = existing.targets ? existing.targets.find(x => x.target_name === t.target_name) : null;
+                if (et) { et.amount += t.amount; } else { (existing.targets = existing.targets || []).push({ ...t }); }
+              }
+            } else {
+              mp.heal_abilities.push({ ...a, targets: (a.targets || []).map(t => ({ ...t })) });
+            }
+          }
+          // Merge damage taken abilities
+          for (const a of (p.damage_taken_abilities || [])) {
+            const existing = (mp.damage_taken_abilities = mp.damage_taken_abilities || []).find(x => x.spell_id === a.spell_id);
+            if (existing) {
+              existing.total_amount += a.total_amount;
+              existing.hit_count += a.hit_count;
+              for (const t of (a.targets || [])) {
+                const et = existing.targets ? existing.targets.find(x => x.target_name === t.target_name) : null;
+                if (et) { et.amount += t.amount; } else { (existing.targets = existing.targets || []).push({ ...t }); }
+              }
+            } else {
+              mp.damage_taken_abilities.push({ ...a, targets: (a.targets || []).map(t => ({ ...t })) });
+            }
+          }
+        }
+      }
+      // Recalculate DPS/HPS from merged totals
+      const dur = totalDuration || 1;
+      const players = Object.values(mergedPlayers).map(p => ({
+        ...p,
+        dps: p.damage_done / dur,
+        hps: p.healing_done / dur
+      }));
+      // Collect pulls from selected trash segments
+      const mergedPulls = [];
+      for (const idx of sel) {
+        const seg = enc.segments[idx];
+        if (seg && seg.segment_type === 'trash' && seg.pulls) {
+          for (const p of seg.pulls) { mergedPulls.push({ ...p, segment_name: seg.name }); }
+        }
+      }
+      return {
+        ...enc,
+        players,
+        deaths: mergedDeaths,
+        duration_secs: totalDuration,
+        enemy_breakdowns: mergeEnemyBreakdowns(sel, enc),
+        buff_uptimes: mergeBuffUptimes(sel, enc, totalDuration),
+        pulls: mergedPulls
+      };
+    }
+
+    function mergeEnemyBreakdowns(sel, enc) {
+      const byTarget = {};
+      for (const idx of sel) {
+        const seg = enc.segments[idx];
+        if (!seg || !seg.enemy_breakdowns) continue;
+        for (const e of seg.enemy_breakdowns) {
+          if (!byTarget[e.target_name]) {
+            byTarget[e.target_name] = { ...e, total_damage: 0, kill_count: 0, players: [] };
+          }
+          const t = byTarget[e.target_name];
+          t.total_damage += e.total_damage;
+          t.kill_count += e.kill_count;
+          for (const p of e.players) {
+            const existing = t.players.find(x => x.player_name === p.player_name);
+            if (existing) { existing.damage += p.damage; }
+            else { t.players.push({ ...p }); }
+          }
+        }
+      }
+      return Object.values(byTarget)
+        .map(e => ({ ...e, players: e.players.sort((a, b) => b.damage - a.damage) }))
+        .sort((a, b) => b.total_damage - a.total_damage);
+    }
+
+    function mergeBuffUptimes(sel, enc, totalDuration) {
+      // per-player guid -> spell_id+source -> merged buff
+      const byPlayer = {};
+      for (const idx of sel) {
+        const seg = enc.segments[idx];
+        if (!seg || !seg.buff_uptimes) continue;
+        for (const [guid, buffs] of Object.entries(seg.buff_uptimes)) {
+          if (!byPlayer[guid]) byPlayer[guid] = {};
+          for (const b of buffs) {
+            const key = b.spell_id + '|' + (b.source_name || '');
+            if (!byPlayer[guid][key]) {
+              byPlayer[guid][key] = { ...b, uptime_secs: 0, timeline: [] };
+            }
+            const m = byPlayer[guid][key];
+            m.uptime_secs += b.uptime_secs;
+            m.timeline = m.timeline.concat(b.timeline || []);
+          }
+        }
+      }
+      // Recalculate uptime_pct and sort
+      const dur = totalDuration || 1;
+      const result = {};
+      for (const [guid, spells] of Object.entries(byPlayer)) {
+        result[guid] = Object.values(spells).map(b => ({
+          ...b,
+          uptime_pct: Math.min((b.uptime_secs / dur) * 100, 100)
+        })).sort((a, b) => b.uptime_pct - a.uptime_pct);
+      }
+      return result;
+    }
+
+    function toggleSegmentFilter(idx, event) {
+      const sel = window.__selectedSegments;
+      const enc = window.__currentEnc;
+      if (!sel || !enc.segments) return;
+
+      if (event && event.ctrlKey) {
+        // Ctrl+click: toggle individual segment
+        if (sel.has(idx)) {
+          sel.delete(idx);
+        } else {
+          sel.add(idx);
+        }
+      } else {
+        // Normal click: solo-select this segment
+        // If already solo-selected, re-select all
+        if (sel.size === 1 && sel.has(idx)) {
+          for (let i = 0; i < enc.segments.length; i++) sel.add(i);
+        } else {
+          sel.clear();
+          sel.add(idx);
+        }
+      }
+      window.__selectedPulls = null;
+      updateSegmentFilterUI();
+      updatePullBar();
+      refreshCurrentTab();
+    }
+
+    function selectAllSegments() {
+      const enc = window.__currentEnc;
+      const sel = window.__selectedSegments;
+      if (!sel || !enc.segments) return;
+      // If all are selected, deselect all. Otherwise select all.
+      if (sel.size === enc.segments.length) {
+        sel.clear();
+      } else {
+        for (let i = 0; i < enc.segments.length; i++) sel.add(i);
+      }
+      window.__selectedPulls = null;
+      updateSegmentFilterUI();
+      updatePullBar();
+      refreshCurrentTab();
+    }
+
+    function updateSegmentFilterUI() {
+      const enc = window.__currentEnc;
+      const sel = window.__selectedSegments;
+      if (!sel || !enc.segments) return;
+      enc.segments.forEach((s, i) => {
+        const el = document.getElementById('segfilt-' + i);
+        if (el) {
+          el.style.opacity = sel.has(i) ? '1' : '0.25';
+          el.style.filter = sel.has(i) ? 'none' : 'grayscale(0.8)';
+        }
+      });
+      const allBtn = document.getElementById('seg-all-btn');
+      if (allBtn) {
+        allBtn.textContent = sel.size === enc.segments.length ? 'None' : 'All';
+      }
+    }
+
+    function getSelectedPulls() {
+      const enc = window.__currentEnc;
+      const sel = window.__selectedSegments;
+      if (!enc || !enc.segments || !sel) return [];
+      // Only show pulls when exactly one trash segment is selected
+      const trashIndices = [...sel].filter(i => enc.segments[i] && enc.segments[i].segment_type === 'trash');
+      if (trashIndices.length !== 1) return [];
+      const seg = enc.segments[trashIndices[0]];
+      if (!seg.pulls || seg.pulls.length <= 1) return [];
+      return seg.pulls.map(p => ({ ...p, segment_name: seg.name }));
+    }
+
+    function updatePullBar() {
+      const bar = document.getElementById('pull-bar');
+      if (!bar) return;
+      const pulls = getSelectedPulls();
+      if (pulls.length === 0) { bar.innerHTML = ''; return; }
+
+      const fmtT = function (s) { var m = Math.floor(s / 60); var sec = Math.round(s % 60); return m + ':' + (sec < 10 ? '0' : '') + sec; };
+      const totalDur = pulls.reduce(function (s, p) { return s + p.duration_secs; }, 0) || 1;
+      const selPulls = window.__selectedPulls;
+
+      bar.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><div style="display:flex;flex:1;height:22px;border-radius:6px;overflow:hidden;gap:1px">' +
+        pulls.map(function (p, pi) {
+          const pct = (p.duration_secs / totalDur * 100).toFixed(1);
+          const isActive = !selPulls || selPulls.has(pi);
+          const opacity = isActive ? '1' : '0.3';
+          const border = selPulls && selPulls.has(pi) ? 'box-shadow:inset 0 0 0 2px var(--accent-cyan);' : '';
+          return '<div style="flex:' + pct + ';background:rgba(34,197,94,0.25);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:var(--text-secondary);cursor:pointer;opacity:' + opacity + ';transition:opacity 0.2s;' + border + '" title="Pull ' + (p.pull_index + 1) + ' — ' + p.enemies.length + ' mobs — ' + fmtT(p.duration_secs) + '" onclick="selectPull(' + pi + ', event)">' + (pct > 8 ? 'P' + (p.pull_index + 1) : '') + '</div>';
+        }).join('') +
+        '</div><span style="font-size:9px;color:var(--text-muted);white-space:nowrap">Ctrl+click to multi-select</span></div>';
+    }
+
+    function selectPull(pullIdx, event) {
+      const pulls = getSelectedPulls();
+      if (event && event.ctrlKey) {
+        // Ctrl+click: toggle individual pull in multi-select
+        if (!window.__selectedPulls) {
+          window.__selectedPulls = new Set(pulls.map((_, i) => i));
+        }
+        if (window.__selectedPulls.has(pullIdx)) {
+          window.__selectedPulls.delete(pullIdx);
+          if (window.__selectedPulls.size === 0) window.__selectedPulls = null;
+        } else {
+          window.__selectedPulls.add(pullIdx);
+        }
+        if (window.__selectedPulls && window.__selectedPulls.size >= pulls.length) window.__selectedPulls = null;
+      } else {
+        // Normal click: solo select / deselect
+        if (window.__selectedPulls && window.__selectedPulls.size === 1 && window.__selectedPulls.has(pullIdx)) {
+          window.__selectedPulls = null;
+        } else {
+          window.__selectedPulls = new Set([pullIdx]);
+        }
+      }
+      updatePullBar();
+      refreshCurrentTab();
+    }
+
+    function mergePullPlayers(pulls, selPulls) {
+      // Merge player data from multiple selected pulls
+      const merged = {};
+      const indices = selPulls ? [...selPulls] : pulls.map((_, i) => i);
+      for (const pi of indices) {
+        const pull = pulls[pi];
+        if (!pull || !pull.players) continue;
+        for (const p of pull.players) {
+          if (!merged[p.guid]) {
+            merged[p.guid] = { ...p, damage_done: 0, healing_done: 0, damage_taken: 0, dps: 0, hps: 0 };
+          }
+          merged[p.guid].damage_done += p.damage_done;
+          merged[p.guid].healing_done += p.healing_done;
+          merged[p.guid].damage_taken += p.damage_taken || 0;
+        }
+      }
+      // Compute combined duration for DPS/HPS
+      let totalDur = 0;
+      for (const pi of indices) { if (pulls[pi]) totalDur += pulls[pi].duration_secs; }
+      totalDur = Math.max(totalDur, 1);
+      const players = Object.values(merged);
+      for (const p of players) { p.dps = p.damage_done / totalDur; p.hps = p.healing_done / totalDur; }
+      return players;
+    }
+
+    function renderDamageTab(enc, maxDmg) {
+      // Check if pulls are selected — override players with merged pull data
+      let pullActive = false;
+      if (window.__selectedPulls) {
+        const pulls = getSelectedPulls();
+        if (pulls.length > 0) {
+          const merged = mergePullPlayers(pulls, window.__selectedPulls);
+          if (merged.length > 0) {
+            enc = { ...enc, players: merged };
+            maxDmg = Math.max(...merged.map(p => p.damage_done), 1);
+            pullActive = true;
+          }
+        }
+      }
+
+      if (enc.players.length === 0) return '<div class="empty-state"><div class="title">No damage data</div></div>';
+
+      const hasBuckets = enc.time_bucketed_player_damage && Object.keys(enc.time_bucketed_player_damage).length > 0;
+      const isRaid = enc.encounter_type === 'boss';
+      const dur = Math.ceil(enc.duration_secs || 1);
+
+      if (hasBuckets && isRaid) {
+        if (!window.__hpSliderEnc || window.__hpSliderEnc.encounter_name !== enc.encounter_name || window.__hpSliderEnc.start_time !== enc.start_time) {
+          window.__hpSliderLow = 0;
+          window.__hpSliderHigh = dur;
+        }
+        window.__hpSliderEnc = enc;
+        window.__hpSliderMax = dur;
+      } else {
+        window.__hpSliderLow = null;
+        window.__hpSliderHigh = null;
+        window.__hpSliderEnc = null;
+        window.__hpSliderMax = null;
+      }
+
+      let sliderHtml = '';
+      if (hasBuckets && isRaid) {
+        const lo = window.__hpSliderLow;
+        const hi = window.__hpSliderHigh;
+        const loPct = (lo / dur * 100).toFixed(1);
+        const hiPct = (100 - hi / dur * 100).toFixed(1);
+        const fmtTime = function (s) { var m = Math.floor(s / 60); var sec = s % 60; return m + ':' + (sec < 10 ? '0' : '') + sec; };
+
+        // Build boss HP SVG graph
+        var timeline = enc.boss_hp_timeline || [];
+        var svgContent = '';
+        if (timeline.length > 0) {
+          var w = 600, h = 50, maxT = dur;
+          var pts = [[0, 100]];
+          for (var ti = 0; ti < timeline.length; ti++) { pts.push([timeline[ti][0], timeline[ti][1]]); }
+          pts.push([maxT, pts[pts.length - 1][1]]);
+          var pathD = 'M' + pts.map(function (p) { return (p[0] / maxT * w).toFixed(1) + ',' + ((100 - p[1]) / 100 * h).toFixed(1); }).join(' L');
+          svgContent = '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" style="width:100%;height:50px;display:block">'
+            + '<rect x="' + (lo / maxT * w) + '" y="0" width="' + ((hi - lo) / maxT * w) + '" height="' + h + '" fill="var(--accent-cyan)" opacity="0.08"/>'
+            + '<path d="' + pathD + ' L' + w + ',' + h + ' L0,' + h + ' Z" fill="url(#hpGrad)" opacity="0.3"/>'
+            + '<path d="' + pathD + '" fill="none" stroke="var(--accent-red)" stroke-width="1.5"/>'
+            + '<defs><linearGradient id="hpGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent-red)" stop-opacity="0.6"/><stop offset="100%" stop-color="var(--accent-red)" stop-opacity="0.05"/></linearGradient></defs>'
+            + '</svg>';
+        }
+
+        sliderHtml = '<div style="margin-bottom:20px;padding:16px 20px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:12px">'
+          + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+          + '<span style="font-size:13px;font-weight:600;color:var(--text-secondary)">\u23F1\uFE0F Fight Timeline</span>'
+          + '<span id="hp-range-label" style="font-size:13px;font-weight:700;color:var(--accent-cyan)">' + fmtTime(lo) + ' \u2014 ' + fmtTime(hi) + '</span>'
+          + '</div>'
+          + (svgContent ? '<div style="margin-bottom:4px;border-radius:6px;overflow:hidden;border:1px solid var(--border-color);background:var(--bg-secondary)">'
+            + '<div style="display:flex;justify-content:space-between;padding:0 6px;font-size:9px;color:var(--text-muted);margin-top:2px"><span>100%</span><span style="color:var(--accent-red)">Boss HP</span><span>0%</span></div>'
+            + svgContent + '</div>' : '')
+          + '<div style="position:relative;height:36px;user-select:none" id="hp-slider-container">'
+          + '<div style="position:absolute;top:14px;left:0;right:0;height:8px;background:var(--border-color);border-radius:4px"></div>'
+          + '<div id="hp-slider-track" style="position:absolute;top:14px;height:8px;background:linear-gradient(90deg,var(--accent-cyan),var(--accent-blue));border-radius:4px;left:' + loPct + '%;right:' + hiPct + '%"></div>'
+          + '<input type="range" min="0" max="' + dur + '" value="' + lo + '" id="hp-slider-lo" oninput="onHpSliderChange()" style="position:absolute;top:4px;left:0;width:100%;height:28px;-webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;margin:0;z-index:2;outline:none">'
+          + '<input type="range" min="0" max="' + dur + '" value="' + hi + '" id="hp-slider-hi" oninput="onHpSliderChange()" style="position:absolute;top:4px;left:0;width:100%;height:28px;-webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;margin:0;z-index:3;outline:none">'
+          + '</div>'
+          + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px">'
+          + '<span>0:00 (Pull)</span><span>' + fmtTime(dur) + ' (End)</span></div>'
+          + '</div>'
+          + '<style>'
+          + '#hp-slider-lo::-webkit-slider-thumb,#hp-slider-hi::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent-cyan);border:2px solid var(--bg-primary);cursor:pointer;pointer-events:auto;box-shadow:0 2px 6px rgba(0,0,0,0.4)}'
+          + '#hp-slider-lo::-moz-range-thumb,#hp-slider-hi::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--accent-cyan);border:2px solid var(--bg-primary);cursor:pointer;pointer-events:auto;box-shadow:0 2px 6px rgba(0,0,0,0.4)}'
+          + '</style>';
+      }
+
+      const sorted = [...enc.players].sort((a, b) => b.damage_done - a.damage_done);
+      const tableHtml = sliderHtml + `<table class="data-table">
+    <thead><tr><th>#</th><th>Player</th><th>Damage Done</th><th></th><th class="num">DPS</th></tr></thead>
+    <tbody id="damage-table-body">${sorted.map((p, i) => {
+        const pid = `dmg-${p.guid.replace(/[^a-zA-Z0-9]/g, '')}`;
+        return `<tr class="animate-in player-row" style="animation-delay:${i * 20}ms;cursor:pointer" onclick="togglePlayerDetail('${pid}')">
+      <td class="rank ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}</td>
+      <td>${roleIcon(p.role)}<strong style="color:${classColor(p.class_name)}">${p.name}</strong>${p.spec_name ? `<span style="color:${classColor(p.class_name)};opacity:0.6;font-size:11px;margin-left:6px">${p.spec_name} ${p.class_name}</span>` : ''}</td>
+      <td class="num">${formatNumber(p.damage_done)}</td>
+      <td class="bar-cell">
+        <div class="bar-container">
+          <div class="bar-fill" style="width:${(p.damage_done / maxDmg * 100).toFixed(1)}%;background:linear-gradient(90deg, var(--accent-purple), var(--accent-blue));opacity:0.8"></div>
+          <div class="bar-label">${formatNumber(p.damage_done)}</div>
+        </div>
+      </td>
+      <td class="num" style="color:var(--accent-orange);font-weight:600">${formatNumber(Math.round(p.dps))}</td>
+    </tr>
+    <tr id="${pid}" class="detail-row" style="display:none">
+      <td colspan="5" style="padding:0">
+        <div style="display:flex;gap:8px;padding:8px 12px 0 12px">
+          <button onclick="showDetailTab('${pid}','abilities')" id="${pid}-btn-abilities" style="padding:4px 12px;font-size:11px;font-weight:600;border:1px solid var(--accent-purple);background:var(--accent-purple)22;color:var(--accent-purple);border-radius:6px;cursor:pointer">Abilities</button>
+          <button onclick="showDetailTab('${pid}','targets')" id="${pid}-btn-targets" style="padding:4px 12px;font-size:11px;font-weight:600;border:1px solid var(--border-color);background:transparent;color:var(--text-muted);border-radius:6px;cursor:pointer">Targets</button>
+        </div>
+        <div id="${pid}-abilities" class="ability-panel">${renderAbilityBreakdown(p.abilities || [], p.damage_done)}</div>
+        <div id="${pid}-targets" class="ability-panel" style="display:none">${renderTargetBreakdown(p.abilities || [], p.damage_done)}</div>
+      </td>
+    </tr>`;
+      }).join('')}</tbody></table>`;
+
+      // Show pull filter indicator
+      let pullHeader = '';
+      if (pullActive) {
+        const pulls = getSelectedPulls();
+        const selIdxs = window.__selectedPulls ? [...window.__selectedPulls] : [];
+        const labels = selIdxs.map(function (i) { return pulls[i] ? 'Pull ' + (pulls[i].pull_index + 1) : ''; }).filter(Boolean).join(', ');
+        pullHeader = '<div style="margin-bottom:16px;padding:10px 16px;background:var(--card-bg);border:1px solid var(--accent-blue)44;border-radius:10px;display:flex;align-items:center;gap:10px">'
+          + '<span style="font-size:12px;padding:2px 8px;border-radius:4px;background:var(--accent-blue);color:#fff;font-weight:700">' + labels + '</span>'
+          + '<span style="font-size:11px;color:var(--text-muted)">filtered</span>'
+          + '<button onclick="window.__selectedPulls=null;updatePullBar();refreshCurrentTab()" style="margin-left:auto;font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-secondary);cursor:pointer">\u2715 Clear</button>'
+          + '</div>';
+      }
+
+      return pullHeader + tableHtml;
+    }
+
+    function renderHealingTab(enc, maxHeal) {
+      // Apply pull filter
+      if (window.__selectedPulls) {
+        const pulls = getSelectedPulls();
+        if (pulls.length > 0) {
+          const merged = mergePullPlayers(pulls, window.__selectedPulls);
+          if (merged.length > 0) {
+            enc = { ...enc, players: merged };
+            maxHeal = Math.max(...merged.map(p => p.healing_done), 1);
+          }
+        }
+      }
+      const sorted = [...enc.players].filter(p => p.healing_done > 0).sort((a, b) => b.healing_done - a.healing_done);
+      if (sorted.length === 0) return '<div class="empty-state"><div class="title">No healing data</div></div>';
+      return `<table class="data-table">
+    <thead><tr><th>#</th><th>Player</th><th>Healing Done</th><th></th><th class="num">HPS</th></tr></thead>
+    <tbody>${sorted.map((p, i) => {
+        const pid = `heal-${p.guid.replace(/[^a-zA-Z0-9]/g, '')}`;
+        const abilities = (p.heal_abilities && p.heal_abilities.length > 0) ? p.heal_abilities : (p.abilities || []);
+        return `<tr class="animate-in player-row" style="animation-delay:${i * 20}ms;cursor:pointer" onclick="togglePlayerDetail('${pid}')">
+      <td class="rank ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}</td>
+      <td><strong style="color:${classColor(p.class_name)}">${p.name}</strong>${p.spec_name ? `<span style="color:${classColor(p.class_name)};opacity:0.6;font-size:11px;margin-left:6px">${p.spec_name} ${p.class_name}</span>` : ''}</td>
+      <td class="num">${formatNumber(p.healing_done)}</td>
+      <td class="bar-cell">
+        <div class="bar-container">
+          <div class="bar-fill" style="width:${(p.healing_done / maxHeal * 100).toFixed(1)}%;background:linear-gradient(90deg, var(--accent-green), var(--accent-cyan));opacity:0.8"></div>
+          <div class="bar-label">${formatNumber(p.healing_done)}</div>
+        </div>
+      </td>
+      <td class="num" style="color:var(--accent-green);font-weight:600">${formatNumber(Math.round(p.hps))}</td>
+    </tr>
+    <tr id="${pid}" class="detail-row" style="display:none">
+      <td colspan="5" style="padding:0">
+        <div class="ability-panel">${renderAbilityBreakdown(abilities, p.healing_done)}</div>
+      </td>
+    </tr>`;
+      }).join('')}</tbody></table>`;
+    }
+
+    function togglePlayerDetail(id) {
+      const row = document.getElementById(id);
+      if (!row) return;
+      row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+    }
+
+    function renderAbilityBreakdown(abilities, totalAmount) {
+      if (!abilities || abilities.length === 0) return '<div style="padding:12px;color:var(--text-muted)">No ability data</div>';
+      const maxAbility = Math.max(...abilities.map(a => a.total_amount), 1);
+      return `<table style="width:100%;border-collapse:collapse">
+      ${abilities.map(a => {
+        const pct = totalAmount > 0 ? (a.total_amount / totalAmount * 100).toFixed(1) : '0.0';
+        const barW = (a.total_amount / maxAbility * 100).toFixed(1);
+        const hasTargets = a.targets && a.targets.length > 0;
+        const tid = `abl-${a.spell_id}-${Math.random().toString(36).substr(2, 5)}`;
+        return `<tr class="ability-row" style="cursor:${hasTargets ? 'pointer' : 'default'}" ${hasTargets ? `onclick="togglePlayerDetail('${tid}')"` : ''}>
+            <td style="padding:6px 12px;width:30%;white-space:nowrap">
+              ${spellHtml(a.spell_id, a.spell_name, a.wowhead_url, { stopClick: true })}
+              <span style="color:var(--text-muted);font-size:11px;margin-left:4px">${a.hit_count} hits</span>
+            </td>
+            <td style="padding:6px 8px;width:50%">
+              <div style="position:relative;height:18px;background:rgba(255,255,255,0.03);border-radius:4px;overflow:hidden">
+                <div style="height:100%;width:${barW}%;background:linear-gradient(90deg, rgba(139,92,246,0.4), rgba(59,130,246,0.4));border-radius:4px"></div>
+                <span style="position:absolute;left:8px;top:1px;font-size:11px;color:var(--text-secondary)">${formatNumber(a.total_amount)}</span>
+              </div>
+            </td>
+            <td style="padding:6px 12px;text-align:right;font-size:13px;color:var(--text-secondary);font-weight:500">${pct}%</td>
+          </tr>
+          ${hasTargets ? `<tr id="${tid}" class="detail-row" style="display:none"><td colspan="3" style="padding:0 0 0 24px">
+            <table style="width:100%;border-collapse:collapse">
+              ${a.targets.map(t => {
+          const tpct = a.total_amount > 0 ? (t.amount / a.total_amount * 100).toFixed(1) : '0.0';
+          return `<tr style="border-top:1px solid rgba(255,255,255,0.03)">
+                  <td style="padding:3px 12px;font-size:12px;color:var(--text-muted)">↳ ${t.target_name}</td>
+                  <td style="padding:3px 8px;font-size:12px;color:var(--text-secondary)">${formatNumber(t.amount)}</td>
+                  <td style="padding:3px 12px;text-align:right;font-size:12px;color:var(--text-muted)">${tpct}%</td>
+                </tr>`;
+        }).join('')}
+            </table>
+          </td></tr>` : ''}`;
+      }).join('')
+        }
+      </table > `;
+    }
+
+    function renderTargetBreakdown(abilities, totalAmount) {
+      if (!abilities || abilities.length === 0) return '<div style="padding:12px;color:var(--text-muted)">No target data</div>';
+      // Aggregate per-target damage across all abilities
+      const targetMap = {};
+      abilities.forEach(function (a) {
+        if (!a.targets) return;
+        a.targets.forEach(function (t) {
+          if (!targetMap[t.target_name]) targetMap[t.target_name] = 0;
+          targetMap[t.target_name] += t.amount;
+        });
+      });
+      const targets = Object.entries(targetMap).map(function (e) { return { name: e[0], amount: e[1] }; });
+      targets.sort(function (a, b) { return b.amount - a.amount; });
+      if (targets.length === 0) return '<div style="padding:12px;color:var(--text-muted)">No target data</div>';
+      const maxTarget = Math.max.apply(null, targets.map(function (t) { return t.amount; }).concat([1]));
+      return '<table style="width:100%;border-collapse:collapse">' + targets.map(function (t) {
+        const pct = totalAmount > 0 ? (t.amount / totalAmount * 100).toFixed(1) : '0.0';
+        const barW = (t.amount / maxTarget * 100).toFixed(1);
+        return '<tr class="ability-row">'
+          + '<td style="padding:6px 12px;width:30%;white-space:nowrap;font-weight:500;color:var(--text-primary)">' + t.name + '</td>'
+          + '<td style="padding:6px 8px;width:50%">'
+          + '<div style="position:relative;height:18px;background:rgba(255,255,255,0.03);border-radius:4px;overflow:hidden">'
+          + '<div style="height:100%;width:' + barW + '%;background:linear-gradient(90deg, rgba(239,68,68,0.4), rgba(249,115,22,0.4));border-radius:4px"></div>'
+          + '<span style="position:absolute;left:8px;top:1px;font-size:11px;color:var(--text-secondary)">' + formatNumber(t.amount) + '</span>'
+          + '</div></td>'
+          + '<td style="padding:6px 12px;text-align:right;font-size:13px;color:var(--text-secondary);font-weight:500">' + pct + '%</td>'
+          + '</tr>';
+      }).join('') + '</table>';
+    }
+
+    function showDetailTab(pid, tab) {
+      var abDiv = document.getElementById(pid + '-abilities');
+      var tgDiv = document.getElementById(pid + '-targets');
+      var abBtn = document.getElementById(pid + '-btn-abilities');
+      var tgBtn = document.getElementById(pid + '-btn-targets');
+      if (!abDiv || !tgDiv) return;
+      if (tab === 'abilities') {
+        abDiv.style.display = '';
+        tgDiv.style.display = 'none';
+        if (abBtn) { abBtn.style.border = '1px solid var(--accent-purple)'; abBtn.style.background = 'rgba(139,92,246,0.13)'; abBtn.style.color = 'var(--accent-purple)'; }
+        if (tgBtn) { tgBtn.style.border = '1px solid var(--border-color)'; tgBtn.style.background = 'transparent'; tgBtn.style.color = 'var(--text-muted)'; }
+      } else {
+        abDiv.style.display = 'none';
+        tgDiv.style.display = '';
+        if (tgBtn) { tgBtn.style.border = '1px solid var(--accent-orange)'; tgBtn.style.background = 'rgba(249,115,22,0.13)'; tgBtn.style.color = 'var(--accent-orange)'; }
+        if (abBtn) { abBtn.style.border = '1px solid var(--border-color)'; abBtn.style.background = 'transparent'; abBtn.style.color = 'var(--text-muted)'; }
+      }
+    }
+
+    function renderDamageTakenTab(enc, maxTaken) {
+      if (window.__selectedPulls) {
+        const pulls = getSelectedPulls();
+        if (pulls.length > 0) {
+          const merged = mergePullPlayers(pulls, window.__selectedPulls);
+          if (merged.length > 0) {
+            enc = { ...enc, players: merged };
+            maxTaken = Math.max(...merged.map(p => p.damage_taken || 0), 1);
+          }
+        }
+      }
+      const sorted = [...enc.players].filter(p => p.damage_taken > 0).sort((a, b) => (b.damage_taken || 0) - (a.damage_taken || 0));
+      if (sorted.length === 0) return '<div class="empty-state"><div class="title">No damage taken data</div></div>';
+      return `<table class="data-table">
+    <thead><tr><th>#</th><th>Player</th><th>Damage Taken</th><th></th><th class="num">DTPS</th></tr></thead>
+    <tbody>${sorted.map((p, i) => {
+        const pid = `dtaken-${p.guid.replace(/[^a-zA-Z0-9]/g, '')}`;
+        const abilities = p.damage_taken_abilities || [];
+        const dur = enc.duration_secs || 1;
+        const dtps = (p.damage_taken || 0) / dur;
+        return `<tr class="animate-in player-row" style="animation-delay:${i * 20}ms;cursor:pointer" onclick="togglePlayerDetail('${pid}')">
+      <td class="rank ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}</td>
+      <td><strong style="color:${classColor(p.class_name)}">${p.name}</strong>${p.spec_name ? `<span style="color:${classColor(p.class_name)};opacity:0.6;font-size:11px;margin-left:6px">${p.spec_name} ${p.class_name}</span>` : ''}</td>
+      <td class="num">${formatNumber(p.damage_taken)}</td>
+      <td class="bar-cell">
+        <div class="bar-container">
+          <div class="bar-fill" style="width:${((p.damage_taken || 0) / maxTaken * 100).toFixed(1)}%;background:linear-gradient(90deg, var(--accent-red), var(--accent-orange));opacity:0.8"></div>
+          <div class="bar-label">${formatNumber(p.damage_taken)}</div>
+        </div>
+      </td>
+      <td class="num" style="color:var(--accent-red);font-weight:600">${formatNumber(Math.round(dtps))}</td>
+    </tr>
+    <tr id="${pid}" class="detail-row" style="display:none">
+      <td colspan="5" style="padding:0">
+        <div style="display:flex;gap:8px;padding:8px 12px 0 12px">
+          <button onclick="showDetailTab('${pid}','abilities')" id="${pid}-btn-abilities" style="padding:4px 12px;font-size:11px;font-weight:600;border:1px solid var(--accent-purple);background:var(--accent-purple)22;color:var(--accent-purple);border-radius:6px;cursor:pointer">Spells Taken</button>
+          <button onclick="showDetailTab('${pid}','targets')" id="${pid}-btn-targets" style="padding:4px 12px;font-size:11px;font-weight:600;border:1px solid var(--border-color);background:transparent;color:var(--text-muted);border-radius:6px;cursor:pointer">Sources</button>
+        </div>
+        <div id="${pid}-abilities" class="ability-panel">${renderAbilityBreakdown(abilities, p.damage_taken)}</div>
+        <div id="${pid}-targets" class="ability-panel" style="display:none">${renderTargetBreakdown(abilities, p.damage_taken)}</div>
+      </td>
+    </tr>`;
+      }).join('')}</tbody></table > `;
+    }
+
+    function renderDeathsTab(enc) {
+      if (enc.deaths.length === 0) return '<div class="empty-state"><div class="icon">✨</div><div class="title">No deaths!</div><p>Clean encounter — nobody died.</p></div>';
+      return enc.deaths.map((d, i) => {
+        // Filter and limit recap events for readability
+        let recapEvents = d.recap ? [...d.recap] : [];
+        // Separate damage/heal from buff events
+        const combatEvents = recapEvents.filter(r => r.event_type === 'damage' || r.event_type === 'healing');
+        const buffEvents = recapEvents.filter(r => r.event_type === 'buff_applied' || r.event_type === 'buff_removed');
+        // Cap buff events at 10, keeping those closest to death
+        const cappedBuffs = buffEvents.slice(-10);
+        recapEvents = [...combatEvents, ...cappedBuffs];
+        // Sort by time descending (latest event first)
+        recapEvents.sort((a, b) => b.time_into_fight_secs - a.time_into_fight_secs);
+
+        return `
+      <div class="death-item animate-in" style="animation-delay:${i * 40}ms">
+        <div class="death-header" onclick="toggleRecap(${i}, this)">
+          <span class="expand-icon">${recapEvents.length > 0 ? '▶' : ''}</span>
+          <div class="death-time">${formatDuration(d.time_into_fight_secs)}</div>
+          <div class="death-player">💀 ${d.player_name}</div>
+          <div class="death-source">Killed by <strong>${d.killing_blow_source || 'Unknown'}</strong> with <em>${d.killing_blow_spell || 'Unknown'}</em></div>
+        </div>
+      ${recapEvents.length > 0 || d.killing_blow_spell ? `
+      <div class="death-recap" id="recap-${i}">
+        ${d.killing_blow_spell ? `
+        <div class="recap-event" style="background:rgba(239,68,68,0.15);border-left:3px solid var(--accent-red);padding-left:8px;margin-bottom:4px">
+          <div class="recap-time" style="font-variant-numeric:tabular-nums;color:var(--accent-red);font-weight:700">☠️</div>
+          <div class="recap-type damage" style="color:var(--accent-red);font-weight:700">KILLING BLOW</div>
+          <div class="recap-amount damage" style="min-width:70px;font-weight:700">${d.killing_blow_amount ? '-' + formatNumber(d.killing_blow_amount) : ''}</div>
+          <span class="recap-spell" style="font-weight:700">${d.killing_blow_spell}</span>
+          <div class="recap-source" style="font-weight:600">${d.killing_blow_source || ''}</div>
+          <div class="recap-hp">${d.overkill && d.overkill > 0 ? `<span style="color:var(--accent-orange);font-size:11px;font-weight:700">Overkill: ${formatNumber(d.overkill)}</span>` : ''}</div>
+        </div>
+        ` : ''}
+        ${recapEvents.map(r => {
+          const typeLabel = r.event_type === 'damage' ? '🗡 DMG' : r.event_type === 'healing' ? '💚 HEAL' : r.event_type === 'buff_applied' ? '⬆ BUFF' : '⬇ FADED';
+          const amountStr = r.event_type === 'damage' ? '-' + formatNumber(r.amount) : r.event_type === 'healing' ? '+' + formatNumber(r.amount) : '';
+          const amountClass = r.event_type === 'damage' ? 'damage' : r.event_type === 'healing' ? 'healing' : '';
+          const hpPct = r.max_hp > 0 ? Math.round(r.current_hp / r.max_hp * 100) : -1;
+          const hpColor = hpPct > 50 ? 'var(--accent-green)' : hpPct > 25 ? 'var(--accent-orange)' : 'var(--accent-red)';
+          const secsBefore = d.time_into_fight_secs - r.time_into_fight_secs;
+          const timeStr = secsBefore < 0.05 ? 'DEATH' : '-' + secsBefore.toFixed(1) + 's';
+          return `
+          <div class="recap-event">
+            <div class="recap-time" style="font-variant-numeric:tabular-nums">${timeStr}</div>
+            <div class="recap-type ${r.event_type}">${typeLabel}</div>
+            <div class="recap-amount ${amountClass}" style="min-width:70px">${amountStr || '—'}</div>
+            ${(() => { const stt = getSpellTooltip(r.spell_id, r.spell_name) || {}; const sIcon = stt.icon_url ? `<img class="spell-icon" src="${stt.icon_url}" alt="" loading="lazy" style="width:16px;height:16px">` : ''; const hasT = stt.name || stt.description; return `<div class="spell-tooltip-wrap"${hasT ? ` data-spell-id="${r.spell_id}" data-spell-name="${r.spell_name}"` : ''}>${sIcon}${r.wowhead_url ? `<a href="${r.wowhead_url}" target="_blank" class="recap-spell">${r.spell_name}</a>` : `<span class="recap-spell">${r.spell_name}</span>`}</div>`; })()}
+            <div class="recap-source">${r.source_name}</div>
+            ${hpPct >= 0 ? `<div class="recap-hp"><div class="recap-hp-bar"><div class="recap-hp-track"><div class="recap-hp-fill" style="width:${hpPct}%;background:${hpColor}"></div></div><div class="recap-hp-text">${hpPct}%</div></div></div>` : '<div class="recap-hp"></div>'}
+          </div>`;
+        }).join('')}
+      </div>
+      ` : ''
+          }
+    </div >
+      `}).join('');
+    }
+
+    function toggleRecap(index, el) {
+      const recap = document.getElementById('recap-' + index);
+      if (!recap) return;
+      const isVisible = recap.classList.contains('visible');
+      recap.classList.toggle('visible');
+      el.classList.toggle('expanded', !isVisible);
+      el.querySelector('.expand-icon').textContent = isVisible ? '▶' : '▼';
+    }
+
+    function renderAbilitiesTab(enc) {
+      // Apply pull filter
+      if (window.__selectedPulls) {
+        const pulls = getSelectedPulls();
+        if (pulls.length > 0) {
+          const merged = mergePullPlayers(pulls, window.__selectedPulls);
+          if (merged.length > 0) {
+            enc = { ...enc, players: merged };
+          }
+        }
+      }
+      const playersWithAbilities = enc.players.filter(p => p.abilities && p.abilities.length > 0);
+      if (playersWithAbilities.length === 0) return '<div class="empty-state"><div class="title">No ability data</div></div>';
+
+      window.__playerSelect = playersWithAbilities;
+
+      // Restore selected player or default to first
+      const selGuid = window.__abilityPlayer || playersWithAbilities[0].guid;
+      const selPlayer = playersWithAbilities.find(p => p.guid === selGuid) || playersWithAbilities[0];
+      window.__abilityPlayer = selPlayer.guid;
+
+      return `
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">Select Player</label>
+          <select id="ability-player-select" onchange="onAbilityPlayerChange(this.value)"
+            style="padding:8px 14px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:${classColor(selPlayer.class_name)};font-size:14px;min-width:260px;cursor:pointer">
+            ${playersWithAbilities.map(p =>
+        `<option value="${p.guid}" ${p.guid === selPlayer.guid ? 'selected' : ''} style="color:${classColor(p.class_name)}">${p.name} \u2014 ${p.spec_name || ''} ${p.class_name || 'Unknown'}</option>`
+      ).join('')}
+          </select>
+          <div style="position:relative;flex:1;min-width:180px;max-width:300px">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;opacity:0.5">🔍</span>
+            <input id="ability-search" type="text" placeholder="Search abilities..."
+              value="${window.__abilitySearch || ''}"
+              oninput="onAbilitySearchChange(this.value)"
+              style="width:100%;padding:8px 14px 8px 32px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:14px;box-sizing:border-box">
+          </div>
+        </div >
+      <div id="ability-list">${renderAbilityList(selPlayer)}</div>`;
+    }
+
+    function onAbilityPlayerChange(guid) {
+      window.__abilityPlayer = guid;
+      const player = window.__playerSelect.find(p => p.guid === guid);
+      if (player) {
+        const sel = document.getElementById('ability-player-select');
+        if (sel) sel.style.color = classColor(player.class_name);
+        document.getElementById('ability-list').innerHTML = renderAbilityList(player);
+      }
+    }
+
+    function onAbilitySearchChange(val) {
+      window.__abilitySearch = val;
+      const guid = window.__abilityPlayer;
+      const player = window.__playerSelect.find(p => p.guid === guid);
+      if (player) document.getElementById('ability-list').innerHTML = renderAbilityList(player);
+    }
+
+    function renderAbilityList(player) {
+      if (!player.abilities || player.abilities.length === 0) return '<p style="color:var(--text-secondary)">No abilities tracked</p>';
+      let abilities = player.abilities;
+      const search = (window.__abilitySearch || '').toLowerCase();
+      if (search) abilities = abilities.filter(a => a.spell_name.toLowerCase().includes(search));
+      if (abilities.length === 0) return '<p style="color:var(--text-secondary)">No matching abilities</p>';
+      const maxAb = Math.max(...abilities.map(a => a.total_amount), 1);
+      return `<table class="data-table">
+    <thead><tr><th>#</th><th>Ability</th><th>Hits</th><th>Total</th><th></th></tr></thead>
+    <tbody>${abilities.map((a, i) => {
+        const tt = getSpellTooltip(a.spell_id, a.spell_name) || {};
+        const iconHtml = tt.icon_url ? `<img class="spell-icon" src="${tt.icon_url}" alt="" loading="lazy">` : '';
+        const hasTooltip = tt.name || tt.description;
+        const dataAttr = hasTooltip ? ` data-spell-id="${a.spell_id}" data-spell-name="${a.spell_name}"` : '';
+        return `<tr class="animate-in" style="animation-delay:${i * 15}ms">
+      <td class="rank">${i + 1}</td>
+      <td><div class="spell-tooltip-wrap"${dataAttr}>
+        ${iconHtml}
+        <a href="${a.wowhead_url}" target="_blank" class="ability-link">${a.spell_name}</a>
+      </div></td>
+      <td class="num">${a.hit_count}</td>
+      <td class="num">${formatNumber(a.total_amount)}</td>
+      <td class="bar-cell">
+        <div class="bar-container">
+          <div class="bar-fill" style="width:${(a.total_amount / maxAb * 100).toFixed(1)}%;background:${getSchoolColor(a.spell_school)};opacity:0.7"></div>
+        </div>
+      </td>
+    </tr>`;
+      }).join('')}</tbody></table > `;
+    }
+
+    // ========== Utility ==========
+    function formatDuration(secs) {
+      if (!secs || secs < 0) return '0:00';
+      const m = Math.floor(secs / 60);
+      const s = Math.floor(secs % 60);
+      return `${m}:${s.toString().padStart(2, '0')} `;
+    }
+
+    function formatNumber(n) {
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+      return n.toLocaleString();
+    }
+
+    function getSchoolColor(school) {
+      const colors = {
+        1: '#FFFF00',   // Physical
+        2: '#FFE680',   // Holy
+        4: '#FF8000',   // Fire
+        8: '#4DFF4D',   // Nature
+        16: '#6699FF',  // Frost
+        32: '#9933FF',  // Shadow
+        64: '#FF66FF',  // Arcane
+      };
+      return colors[school] || 'var(--accent-blue)';
+    }
+
+    function renderEnemiesTab(enc) {
+      let enemies = enc.enemy_breakdowns || [];
+
+      // Apply pull filter: build enemies from pull data with correct per-pull damage
+      if (window.__selectedPulls) {
+        const pulls = getSelectedPulls();
+        if (pulls.length > 0) {
+          // Build lookup from segment-level enemy data for kill_count, mob_type, players
+          const segEnemyMap = {};
+          for (const e of enemies) { segEnemyMap[e.target_name] = e; }
+
+          const merged = {};
+          for (const pi of window.__selectedPulls) {
+            const pull = pulls[pi];
+            if (pull && pull.enemies) {
+              for (const e of pull.enemies) {
+                if (merged[e.name]) {
+                  merged[e.name].total_damage += e.damage_taken;
+                } else {
+                  const seg = segEnemyMap[e.name] || {};
+                  merged[e.name] = {
+                    target_name: e.name,
+                    total_damage: e.damage_taken,
+                    mob_type: seg.mob_type || e.mob_type || 'Trash',
+                    kill_count: seg.kill_count || 0,
+                    players: seg.players || []
+                  };
+                }
+              }
+            }
+          }
+          enemies = Object.values(merged).sort((a, b) => b.total_damage - a.total_damage);
+        }
+      }
+
+      if (enemies.length === 0) return '<div class="empty-state"><div class="title">No enemy data</div></div>';
+
+      const maxTotal = Math.max.apply(null, enemies.map(function (e) { return e.total_damage; }).concat([1]));
+
+      var enemyListHtml = enemies.length > 0 ? '<div id="enemies-list">' + enemies.map(function (e, i) {
+        var hasPlayers = e.players && e.players.length > 0;
+        var maxPlayerDmg = hasPlayers ? Math.max.apply(null, e.players.map(function (p) { return p.damage; }).concat([1])) : 1;
+        var typeInfo = ({ 'Boss': { icon: '💀', color: 'var(--accent-purple)', label: 'Boss' }, 'Trash': { icon: '👹', color: 'var(--text-muted)', label: 'Trash' }, 'Pet': { icon: '🐾', color: 'var(--accent-green)', label: 'Pet' } })[e.mob_type] || { icon: '❓', color: 'var(--text-muted)', label: e.mob_type || 'Unknown' };
+        var killBadge = e.kill_count > 0 ? '<span style="font-size:11px;color:var(--accent-green);margin-left:6px">✕ ' + e.kill_count + ' killed</span>' : '<span style="font-size:11px;color:var(--accent-orange);margin-left:6px">alive</span>';
+        return '<div class="death-item animate-in" style="animation-delay:' + (i * 30) + 'ms">'
+          + '<div class="death-header"' + (hasPlayers ? ' onclick="toggleEnemy(' + i + ', this)" style="cursor:pointer"' : '') + '>'
+          + (hasPlayers ? '<span class="expand-icon">▶</span>' : '<span style="width:18px"></span>')
+          + '<div class="death-player" style="flex:1;font-weight:600;display:flex;align-items:center;gap:6px">'
+          + '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:' + typeInfo.color + '22;color:' + typeInfo.color + ';font-weight:700;letter-spacing:0.5px">' + typeInfo.icon + ' ' + typeInfo.label + '</span>'
+          + e.target_name + killBadge
+          + '</div>'
+          + '<div style="flex:1;display:flex;align-items:center;gap:8px">'
+          + '<div class="bar-container" style="flex:1;max-width:200px"><div class="bar-fill" style="width:' + (e.total_damage / maxTotal * 100).toFixed(1) + '%;background:linear-gradient(90deg,var(--accent-red),var(--accent-orange));opacity:0.7"></div></div>'
+          + '<span style="font-weight:700;font-size:13px;min-width:70px;text-align:right">' + formatNumber(e.total_damage) + '</span>'
+          + '</div>'
+          + '<div class="death-source" style="font-size:12px;color:var(--text-muted)">' + (hasPlayers ? e.players.length + ' player' + (e.players.length !== 1 ? 's' : '') : '') + '</div>'
+          + '</div>'
+          + (hasPlayers ? '<div class="death-recap" id="enemy-' + i + '">'
+            + '<table class="data-table" style="margin:0;font-size:12px"><thead><tr><th></th><th>Player</th><th>Class</th><th class="num">Damage</th><th></th><th class="num">DPS</th><th class="num">% of Total</th></tr></thead>'
+            + '<tbody>' + e.players.map(function (p, pi) {
+              var epid = 'ep-' + i + '-' + pi;
+              // Find full player data and filter abilities to only those hitting this enemy
+              var fullPlayer = enc.players.find(function (fp) { return fp.name === p.player_name; });
+              var enemyName = e.target_name;
+              var dur = enc.duration_secs || 1;
+              var playerDps = Math.round(p.damage / dur);
+              // Filter abilities to only show damage against this specific enemy
+              var playerAbilities = [];
+              if (fullPlayer && fullPlayer.abilities) {
+                fullPlayer.abilities.forEach(function (a) {
+                  if (!a.targets) return;
+                  var targetMatch = a.targets.find(function (t) { return t.target_name === enemyName; });
+                  if (targetMatch && targetMatch.amount > 0) {
+                    playerAbilities.push({
+                      spell_id: a.spell_id, spell_name: a.spell_name, spell_school: a.spell_school,
+                      total_amount: targetMatch.amount, hit_count: a.hit_count,
+                      wowhead_url: a.wowhead_url, targets: [targetMatch]
+                    });
+                  }
+                });
+                playerAbilities.sort(function (a, b) { return b.total_amount - a.total_amount; });
+              }
+              var hasAbilities = playerAbilities.length > 0;
+              return '<tr class="player-row" style="cursor:' + (hasAbilities ? 'pointer' : 'default') + '" ' + (hasAbilities ? 'onclick="togglePlayerDetail(\'' + epid + '\')"' : '') + '><td class="rank ' + (pi < 3 ? 'rank-' + (pi + 1) : '') + '">' + (pi + 1) + '</td>'
+                + '<td><strong style="color:' + classColor(p.class_name) + '">' + p.player_name + '</strong></td>'
+                + '<td style="font-size:11px;color:var(--text-muted)">' + p.class_name + '</td>'
+                + '<td class="num">' + formatNumber(p.damage) + '</td>'
+                + '<td class="bar-cell"><div class="bar-container"><div class="bar-fill" style="width:' + (p.damage / maxPlayerDmg * 100).toFixed(1) + '%;background:' + classColor(p.class_name) + ';opacity:0.6"></div></div></td>'
+                + '<td class="num" style="color:var(--accent-orange);font-weight:600">' + formatNumber(playerDps) + '</td>'
+                + '<td class="num" style="color:var(--text-secondary)">' + (p.damage / e.total_damage * 100).toFixed(1) + '%</td></tr>'
+                + (hasAbilities ? '<tr id="' + epid + '" class="detail-row" style="display:none"><td colspan="7" style="padding:0"><div class="ability-panel">' + renderAbilityBreakdown(playerAbilities, p.damage) + '</div></td></tr>' : '');
+            }).join('') + '</tbody></table></div>' : '')
+          + '</div>';
+      }).join('') + '</div>' : '';
+
+      return enemyListHtml;
+    }
+
+    function buildFilteredPlayers(enc, lo, hi) {
+      const buckets = enc.time_bucketed_player_damage || {};
+      const playerDamage = {};
+      for (const [bucket, players] of Object.entries(buckets)) {
+        const b = parseInt(bucket);
+        if (b >= lo && b <= hi) {
+          for (const [guid, dmg] of Object.entries(players)) {
+            playerDamage[guid] = (playerDamage[guid] || 0) + dmg;
+          }
+        }
+      }
+      // DPS = damage in selected window / window duration
+      const windowDur = Math.max(hi - lo, 1);
+      return (enc.players || []).map(p => {
+        const dmg = playerDamage[p.guid] || 0;
+        return { ...p, damage_done: dmg, dps: dmg / windowDur };
+      }).filter(p => p.damage_done > 0).sort((a, b) => b.damage_done - a.damage_done);
+    }
+
+    function onHpSliderChange() {
+      const loEl = document.getElementById('hp-slider-lo');
+      const hiEl = document.getElementById('hp-slider-hi');
+      if (!loEl || !hiEl) return;
+      let lo = parseInt(loEl.value), hi = parseInt(hiEl.value);
+      if (lo > hi) { const t = lo; lo = hi; hi = t; loEl.value = lo; hiEl.value = hi; }
+      window.__hpSliderLow = lo;
+      window.__hpSliderHigh = hi;
+      const fmtTime = function (s) { var m = Math.floor(s / 60); var sec = s % 60; return m + ':' + (sec < 10 ? '0' : '') + sec; };
+      const label = document.getElementById('hp-range-label');
+      if (label) label.textContent = fmtTime(lo) + ' \u2014 ' + fmtTime(hi);
+      const track = document.getElementById('hp-slider-track');
+      const maxVal = window.__hpSliderMax || 100;
+      if (track) { track.style.left = (lo / maxVal * 100) + '%'; track.style.right = (100 - hi / maxVal * 100) + '%'; }
+      if (!window.__hpSliderEnc) return;
+      const enc = window.__hpSliderEnc;
+      const dur = Math.ceil(enc.duration_secs || 1);
+      const players = (lo === 0 && hi >= dur) ? [...enc.players].sort((a, b) => b.damage_done - a.damage_done) : buildFilteredPlayers(enc, lo, hi);
+      const tableBody = document.getElementById('damage-table-body');
+      if (!tableBody) return;
+      const maxDmg = Math.max(...players.map(p => p.damage_done), 1);
+      tableBody.innerHTML = players.map((p, i) => {
+        const pid = 'dmg-' + p.guid.replace(/[^a-zA-Z0-9]/g, '');
+        return '<tr class="player-row" style="cursor:pointer" onclick="togglePlayerDetail(\'' + pid + '\')">'
+          + '<td class="rank ' + (i < 3 ? 'rank-' + (i + 1) : '') + '">' + (i + 1) + '</td>'
+          + '<td><strong style="color:' + classColor(p.class_name) + '">' + p.name + '</strong>' + (p.spec_name ? '<span style="color:' + classColor(p.class_name) + ';opacity:0.6;font-size:11px;margin-left:6px">' + p.spec_name + ' ' + p.class_name + '</span>' : '') + '</td>'
+          + '<td class="num">' + formatNumber(p.damage_done) + '</td>'
+          + '<td class="bar-cell"><div class="bar-container"><div class="bar-fill" style="width:' + (p.damage_done / maxDmg * 100).toFixed(1) + '%;background:linear-gradient(90deg, var(--accent-purple), var(--accent-blue));opacity:0.8"></div><div class="bar-label">' + formatNumber(p.damage_done) + '</div></div></td>'
+          + '<td class="num" style="color:var(--accent-orange);font-weight:600">' + formatNumber(Math.round(p.dps)) + '</td>'
+          + '</tr>'
+          + '<tr id="' + pid + '" class="detail-row" style="display:none"><td colspan="5" style="padding:0"><div class="ability-panel">' + renderAbilityBreakdown(p.abilities || [], p.damage_done) + '</div></td></tr>';
+      }).join('');
+    }
+
+    function toggleEnemy(index, el) {
+      const recap = document.getElementById('enemy-' + index);
+      if (!recap) return;
+      const isVisible = recap.classList.contains('visible');
+      recap.classList.toggle('visible');
+      el.classList.toggle('expanded', !isVisible);
+      el.querySelector('.expand-icon').textContent = isVisible ? '▶' : '▼';
+    }
+
+    function togglePull(index, el) {
+      const recap = document.getElementById('pull-' + index);
+      if (!recap) return;
+      const isVisible = recap.classList.contains('visible');
+      recap.classList.toggle('visible');
+      el.classList.toggle('expanded', !isVisible);
+      el.querySelector('.expand-icon').textContent = isVisible ? '▶' : '▼';
+    }
+
+    function renderBossesTab(enc) {
+      if (!enc.boss_encounters || enc.boss_encounters.length === 0) {
+        return '<div class="empty-state"><div class="title">No boss data</div></div>';
+      }
+      return enc.boss_encounters.map((b, i) => `
+      <div class="death-item animate-in" style="animation-delay:${i * 40}ms">
+      <div class="death-time">${formatDuration(b.duration_secs)}</div>
+      <div class="death-player" style="color:${b.success ? 'var(--accent-green)' : 'var(--accent-red)'}">
+        ${b.success ? '✓' : '✗'} ${b.name}
+      </div>
+      <div class="death-source">${b.success ? 'Killed' : 'Wipe'} — ${formatDuration(b.duration_secs)} fight</div>
+    </div >
+      `).join('');
+    }
+
+    function renderBuffUptimeTab(enc) {
+      let uptimes = enc.buff_uptimes || {};
+      // Build player list from encounter players
+      let playerList = enc.players || [];
+      let duration = enc.duration_secs || 1;
+
+      // Apply pull filter: clip buff uptimes to the pull time window
+      if (window.__selectedPulls) {
+        const pulls = getSelectedPulls();
+        if (pulls.length > 0) {
+          // Calculate time window from selected pulls (relative to segment start)
+          let lo = Infinity, hi = -Infinity;
+          for (const pi of window.__selectedPulls) {
+            const pull = pulls[pi];
+            if (!pull) continue;
+            const pStart = pull.start_time_offset;
+            const pEnd = pStart + pull.duration_secs;
+            if (pStart < lo) lo = pStart;
+            if (pEnd > hi) hi = pEnd;
+          }
+          if (lo < Infinity) {
+            duration = hi - lo;
+            // Clip each player's buff timelines to the pull time window
+            const clipped = {};
+            for (const [guid, buffs] of Object.entries(uptimes)) {
+              clipped[guid] = buffs.map(b => {
+                const tl = b.timeline || [];
+                // Walk timeline to calculate uptime within [lo, hi]
+                let active = false;
+                let stacks = 0;
+                let lastTime = lo;
+                let uptimeSecs = 0;
+                // Determine initial state at lo by replaying events before lo
+                for (const ev of tl) {
+                  if (ev.time > lo) break;
+                  if (ev.event_type === 'apply' || ev.event_type === 'stack') {
+                    active = true;
+                    stacks = ev.stacks || 1;
+                  } else if (ev.event_type === 'remove') {
+                    active = false;
+                    stacks = 0;
+                  }
+                }
+                // Now walk events within [lo, hi]
+                lastTime = lo;
+                for (const ev of tl) {
+                  if (ev.time < lo) continue;
+                  if (ev.time > hi) break;
+                  if (active) uptimeSecs += ev.time - lastTime;
+                  lastTime = ev.time;
+                  if (ev.event_type === 'apply' || ev.event_type === 'stack') {
+                    active = true;
+                    stacks = ev.stacks || 1;
+                  } else if (ev.event_type === 'remove') {
+                    active = false;
+                    stacks = 0;
+                  }
+                }
+                // If still active at end of window
+                if (active) uptimeSecs += hi - lastTime;
+
+                // Filter timeline events to window and remap times relative to lo
+                const clippedTl = tl
+                  .filter(ev => ev.time >= lo && ev.time <= hi)
+                  .map(ev => ({ ...ev, time: ev.time - lo }));
+                // If buff was active at lo, prepend an apply event at time 0
+                let wasActiveAtLo = false;
+                for (const ev of tl) {
+                  if (ev.time > lo) break;
+                  if (ev.event_type === 'apply' || ev.event_type === 'stack') wasActiveAtLo = true;
+                  else if (ev.event_type === 'remove') wasActiveAtLo = false;
+                }
+                if (wasActiveAtLo && (clippedTl.length === 0 || clippedTl[0].time > 0)) {
+                  clippedTl.unshift({ time: 0, event_type: 'apply', stacks: 1 });
+                }
+
+                const pct = duration > 0 ? (uptimeSecs / duration * 100) : 0;
+                return { ...b, uptime_secs: uptimeSecs, uptime_pct: pct, timeline: clippedTl };
+              }).filter(b => b.uptime_secs > 0 || b.timeline.length > 0);
+            }
+            uptimes = clipped;
+            window.__clippedBuffUptimes = clipped;
+          }
+        }
+      } else {
+        window.__clippedBuffUptimes = null;
+      }
+
+      if (playerList.length === 0) return '<div class="empty-state"><div class="title">No buff data</div></div>';
+
+      // Default to first player
+      window.__buffPlayer = window.__buffPlayer || playerList[0].guid;
+      const selectedGuid = window.__buffPlayer;
+      const selectedPlayer = playerList.find(p => p.guid === selectedGuid) || playerList[0];
+      const playerBuffs = uptimes[selectedPlayer.guid] || [];
+      const searchTerm = (window.__buffSearch || '').toLowerCase();
+      const filteredBuffs = searchTerm ? playerBuffs.filter(b =>
+        b.spell_name.toLowerCase().includes(searchTerm) ||
+        (b.source_name || '').toLowerCase().includes(searchTerm)
+      ) : playerBuffs;
+
+      return `
+      <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label style="font-size:12px;color:var(--text-muted);font-weight:600">SELECT PLAYER</label>
+        <select id="buff-player-select" onchange="selectBuffPlayer(this.value)" style="background:var(--bg-card);color:${classColor(selectedPlayer.class_name)};border:1px solid var(--border-color);border-radius:8px;padding:6px 12px;font-size:14px;cursor:pointer;outline:none">
+          ${playerList.map(p => `<option value="${p.guid}" ${p.guid === selectedPlayer.guid ? 'selected' : ''} style="color:${classColor(p.class_name)}">${p.name} — ${p.spec_name} ${p.class_name}</option>`).join('')}
+        </select>
+        <input type="text" id="buff-search" placeholder="🔍 Search buffs..." value="${searchTerm}" oninput="searchBuffs(this.value)"
+          style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);border-radius:8px;padding:6px 12px;font-size:14px;outline:none;min-width:180px;flex:1;max-width:300px" />
+      </div >
+
+      ${filteredBuffs.length === 0 ? `<div class="empty-state"><div class="title">${playerBuffs.length > 0 ? 'No buffs match your search' : 'No buff data for this player'}</div></div>` : `
+      <table class="data-table">
+        <thead><tr><th>Buff</th><th>Source</th><th>Uptime</th><th></th><th class="num">Avg Stacks</th><th>Timeline</th></tr></thead>
+        <tbody>${filteredBuffs.map((b, i) => `
+          <tr class="animate-in" style="animation-delay:${i * 15}ms">
+            <td style="white-space:nowrap">
+              ${spellHtml(b.spell_id, b.spell_name, b.wowhead_url)}
+            </td>
+            <td style="font-size:12px;color:var(--text-secondary)">${b.source_name || '—'}</td>
+            <td class="num" style="min-width:60px;font-weight:600;color:${b.uptime_pct > 80 ? 'var(--accent-green)' : b.uptime_pct > 40 ? 'var(--accent-orange)' : 'var(--text-secondary)'}">
+              ${b.uptime_pct.toFixed(1)}%
+            </td>
+            <td class="bar-cell" style="min-width:120px">
+              <div class="bar-container">
+                <div class="bar-fill" style="width:${b.uptime_pct.toFixed(1)}%;background:linear-gradient(90deg, rgba(139,92,246,0.6), rgba(59,130,246,0.6));opacity:0.9"></div>
+                <div class="bar-label" style="font-size:11px">${formatDuration(b.uptime_secs)}</div>
+              </div>
+            </td>
+            <td class="num" style="color:${b.max_stacks > 1 ? 'var(--accent-cyan)' : 'var(--text-muted)'}">
+              ${b.max_stacks > 1 ? b.avg_stacks.toFixed(1) + ' / ' + b.max_stacks : '—'}
+            </td>
+            <td style="min-width:180px;padding:4px 8px">
+              <canvas class="buff-timeline" data-buff-idx="${i}" width="360" height="24" style="width:180px;height:24px;border-radius:4px;background:rgba(255,255,255,0.03)"></canvas>
+            </td>
+          </tr>
+        `).join('')}</tbody>
+      </table>`}
+    `;
+    }
+
+    function selectBuffPlayer(guid) {
+      window.__buffPlayer = guid;
+      const enc = window.__currentEnc;
+      const player = enc && enc.players.find(p => p.guid === guid);
+      if (player) {
+        const sel = document.getElementById('buff-player-select');
+        if (sel) sel.style.color = classColor(player.class_name);
+      }
+      refreshCurrentTab();
+    }
+
+    function searchBuffs(term) {
+      window.__buffSearch = term;
+      // Re-render but preserve search input focus
+      const searchEl = document.getElementById('buff-search');
+      const cursorPos = searchEl ? searchEl.selectionStart : 0;
+      refreshCurrentTab();
+      setTimeout(() => {
+        const newSearch = document.getElementById('buff-search');
+        if (newSearch) { newSearch.focus(); newSearch.setSelectionRange(cursorPos + 1, cursorPos + 1); }
+      }, 0);
+    }
+
+    function drawBuffTimelines(buffs, duration) {
+      document.querySelectorAll('.buff-timeline').forEach(canvas => {
+        const idx = parseInt(canvas.dataset.buffIdx);
+        const buff = buffs[idx];
+        if (!buff || !buff.timeline || buff.timeline.length === 0) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        let isActive = false;
+        let activeStart = 0;
+        let currentStacks = 0;
+        const maxStacks = buff.max_stacks || 1;
+
+        for (const ev of buff.timeline) {
+          const x = (ev.time / duration) * w;
+          if (ev.event_type === 'apply') {
+            if (isActive) {
+              drawUptimeBar(ctx, activeStart, x, currentStacks, maxStacks, h);
+            }
+            isActive = true;
+            activeStart = x;
+            currentStacks = ev.stacks;
+          } else if (ev.event_type === 'remove') {
+            if (isActive) {
+              drawUptimeBar(ctx, activeStart, x, currentStacks, maxStacks, h);
+            }
+            isActive = false;
+          } else if (ev.event_type === 'stack') {
+            if (isActive) {
+              drawUptimeBar(ctx, activeStart, x, currentStacks, maxStacks, h);
+              activeStart = x;
+            }
+            currentStacks = ev.stacks;
+          }
+        }
+        // Close at end
+        if (isActive) {
+          drawUptimeBar(ctx, activeStart, w, currentStacks, maxStacks, h);
+        }
+      });
+    }
+
+    function drawUptimeBar(ctx, x1, x2, stacks, maxStacks, h) {
+      const intensity = maxStacks > 1 ? stacks / maxStacks : 1;
+      const alpha = 0.3 + intensity * 0.5;
+      ctx.fillStyle = `rgba(139, 92, 246, ${alpha})`;
+      ctx.fillRect(x1, 0, Math.max(x2 - x1, 1), h);
+      if (maxStacks > 1 && stacks > 1) {
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = '9px Inter';
+        const tw = ctx.measureText(stacks.toString()).width;
+        if (x2 - x1 > tw + 4) {
+          ctx.fillText(stacks.toString(), x1 + 2, h - 4);
+        }
+      }
+    }
+
+    // ========== Replay Tab ==========
+    function renderReplayTab(enc) {
+      if (!enc.replay_timeline || enc.replay_timeline.length === 0) {
+        return `<div class="empty-state"><div class="icon">🎬</div><div class="title">No replay data</div><p>HP data not available for this encounter.</p></div>`;
+      }
+
+      // Get unique player GUIDs from timeline
+      const playerGuids = [...new Set(enc.replay_timeline.map(s => s.guid))];
+      const playerInfo = {};
+      for (const s of enc.replay_timeline) {
+        if (!playerInfo[s.guid]) {
+          playerInfo[s.guid] = { name: s.name, class_name: s.class_name, max_hp: s.max_hp };
+        }
+        if (s.max_hp > playerInfo[s.guid].max_hp) playerInfo[s.guid].max_hp = s.max_hp;
+      }
+
+      // Check if position data exists
+      const hasPositions = enc.replay_timeline.some(s => s.pos_x != null && s.pos_y != null);
+
+      // Death markers
+      const deaths = enc.deaths || [];
+      const deathMarkers = deaths.map(d => {
+        const pct = (d.time_into_fight_secs / enc.duration_secs * 100).toFixed(2);
+        return `<span class="replay-death-marker" style="left:${pct}%" title="💀 ${d.player_name} died at ${formatDuration(d.time_into_fight_secs)}${d.killing_blow_spell ? ' — ' + d.killing_blow_spell : ''}">💀</span>`;
+      }).join('');
+
+      // Boss HP section
+      const hasBossHp = enc.boss_hp_timeline && enc.boss_hp_timeline.length > 0;
+      const bossSection = hasBossHp ? `
+      <div class="replay-boss-hp">
+          <div class="replay-boss-hp-label">BOSS HP — ${enc.name}</div>
+          <div class="replay-boss-hp-bar">
+            <div class="replay-boss-hp-fill" id="replay-boss-fill" style="width:100%"></div>
+            <div class="replay-boss-hp-text" id="replay-boss-text">100%</div>
+          </div>
+        </div>` : '';
+
+      // Raid frame HTML
+      const raidFramesHtml = playerGuids.map(guid => {
+        const info = playerInfo[guid];
+        const color = classColor(info.class_name);
+        const safeId = guid.replace(/[^a-zA-Z0-9]/g, '_');
+        return `
+      <div class="raid-frame" id="rf-${safeId}">
+            <div class="raid-frame-bg" style="background:${color}"></div>
+            <div class="raid-frame-fill" id="rf-fill-${safeId}" style="width:100%;background:${color};opacity:0.7"></div>
+            <div class="raid-frame-deficit" id="rf-def-${safeId}" style="width:0%"></div>
+            <div class="raid-frame-content">
+              <div class="raid-frame-name">${info.name.split('-')[0]}</div>
+              <div class="raid-frame-hp" id="rf-hp-${safeId}">${formatNumber(info.max_hp)}</div>
+            </div>
+          </div>`;
+      }).join('');
+
+      // Map section
+      const mapSection = hasPositions ? `
+      <div class="replay-map-wrap">
+          <div class="replay-map-label">Position Map</div>
+          <canvas class="replay-map-canvas" id="replay-map"></canvas>
+        </div>` : '';
+
+      return `
+      <div class="replay-container">
+          <div class="replay-controls">
+            <button id="replay-playpause" title="Play / Pause">▶</button>
+            <input type="range" class="replay-slider" id="replay-slider" min="0" max="${(enc.duration_secs * 10).toFixed(0)}" value="0" step="1" />
+            <div class="replay-time" id="replay-time">0:00 / ${formatDuration(enc.duration_secs)}</div>
+            <div class="replay-speed" id="replay-speed" title="Click to change speed">1×</div>
+          </div>
+          <div class="replay-death-markers" id="replay-markers">${deathMarkers}</div>
+          ${bossSection}
+    <div class="replay-map-section">
+      <div class="replay-raid-frames">
+        <div class="replay-raid-label">Party / Raid Frames</div>
+        <div class="replay-frames-grid">${raidFramesHtml}</div>
+      </div>
+      ${mapSection}
+    </div>
+        </div > `;
+    }
+
+    function initReplayControls(enc) {
+      const slider = document.getElementById('replay-slider');
+      const timeDisplay = document.getElementById('replay-time');
+      const playBtn = document.getElementById('replay-playpause');
+      const speedBtn = document.getElementById('replay-speed');
+      const mapCanvas = document.getElementById('replay-map');
+      if (!slider) return;
+
+      // Build index: group timeline by time for fast lookup
+      const timeline = enc.replay_timeline;
+      const timeIndex = []; // [{time, startIdx, endIdx}]
+      let i = 0;
+      while (i < timeline.length) {
+        const t = timeline[i].time;
+        const start = i;
+        while (i < timeline.length && timeline[i].time === t) i++;
+        timeIndex.push({ time: t, startIdx: start, endIdx: i });
+      }
+
+      // Boss HP timeline index
+      const bossHp = enc.boss_hp_timeline || [];
+
+      // Compute position bounding box for the map (include both players and boss)
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const s of timeline) {
+        if (s.pos_x != null && s.pos_y != null) {
+          const gx = -s.pos_y;
+          const gy = s.pos_x;
+          if (gx < minX) minX = gx;
+          if (gx > maxX) maxX = gx;
+          if (gy < minY) minY = gy;
+          if (gy > maxY) maxY = gy;
+        }
+      }
+      const bossPos = enc.boss_positions || [];
+      for (const bp of bossPos) {
+        const bgx = -bp[2]; // posY -> game_x
+        const bgy = bp[1];  // posX -> game_y
+        if (bgx < minX) minX = bgx;
+        if (bgx > maxX) maxX = bgx;
+        if (bgy < minY) minY = bgy;
+        if (bgy > maxY) maxY = bgy;
+      }
+      const hasPositions = minX < Infinity;
+      const pad = 25;
+
+      // Auto-size canvas to fill container (square)
+      let mapW = 320, mapH = 320;
+      if (mapCanvas) {
+        const containerW = mapCanvas.parentElement.clientWidth - 24; // minus padding
+        const sz = Math.max(containerW, 200);
+        mapCanvas.width = sz;
+        mapCanvas.height = sz;
+        mapW = sz;
+        mapH = sz;
+      }
+
+      const rangeX = (maxX - minX) || 1;
+      const rangeY = (maxY - minY) || 1;
+      const scale = Math.min((mapW - pad * 2) / rangeX, (mapH - pad * 2) / rangeY);
+      const offsetX = (mapW - rangeX * scale) / 2;
+      const offsetY = (mapH - rangeY * scale) / 2;
+
+      let playing = false;
+      let animFrame = null;
+      let lastFrameTime = 0;
+      const speeds = [0.5, 1, 2, 4, 8];
+      let speedIdx = 1;
+
+      function findSnapshotsAtTime(t) {
+        // Binary search for the last timeIndex entry <= t
+        let lo = 0, hi = timeIndex.length - 1, best = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (timeIndex[mid].time <= t) { best = mid; lo = mid + 1; }
+          else { hi = mid - 1; }
+        }
+        if (best < 0) return [];
+        const entry = timeIndex[best];
+        return timeline.slice(entry.startIdx, entry.endIdx);
+      }
+
+      function findBossHpAtTime(t) {
+        let lo = 0, hi = bossHp.length - 1, best = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (bossHp[mid][0] <= t) { best = mid; lo = mid + 1; }
+          else { hi = mid - 1; }
+        }
+        return best >= 0 ? bossHp[best][1] : 100;
+      }
+
+      function updateDisplay(timeVal) {
+        const t = timeVal / 10;
+        timeDisplay.textContent = `${formatDuration(t)} / ${formatDuration(enc.duration_secs)}`;
+
+        const snapshots = findSnapshotsAtTime(t);
+
+        // Update raid frames
+        for (const s of snapshots) {
+          const safeId = s.guid.replace(/[^a-zA-Z0-9]/g, '_');
+          const frame = document.getElementById('rf-' + safeId);
+          const fill = document.getElementById('rf-fill-' + safeId);
+          const deficit = document.getElementById('rf-def-' + safeId);
+          const hpText = document.getElementById('rf-hp-' + safeId);
+          if (!frame) continue;
+
+          const pct = s.max_hp > 0 ? (s.current_hp / s.max_hp * 100) : 0;
+          const defPct = 100 - pct;
+
+          if (s.is_dead) {
+            frame.classList.add('dead');
+            fill.style.width = '0%';
+            deficit.style.width = '100%';
+            hpText.textContent = '💀 Dead';
+          } else {
+            frame.classList.remove('dead');
+            fill.style.width = pct.toFixed(1) + '%';
+            deficit.style.width = defPct.toFixed(1) + '%';
+            hpText.textContent = formatNumber(s.current_hp);
+          }
+        }
+
+        // Update boss HP
+        const bossFill = document.getElementById('replay-boss-fill');
+        const bossText = document.getElementById('replay-boss-text');
+        if (bossFill && bossText) {
+          const hp = findBossHpAtTime(t);
+          bossFill.style.width = hp.toFixed(1) + '%';
+          bossText.textContent = hp.toFixed(1) + '%';
+        }
+
+        // Draw position map with smooth interpolation
+        if (mapCanvas && hasPositions && snapshots.length > 0) {
+          const ctx = mapCanvas.getContext('2d');
+          ctx.clearRect(0, 0, mapW, mapH);
+
+          // Draw grid
+          ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+          ctx.lineWidth = 1;
+          for (let gx = 0; gx <= mapW; gx += 40) {
+            ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, mapH); ctx.stroke();
+          }
+          for (let gy = 0; gy <= mapH; gy += 40) {
+            ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(mapW, gy); ctx.stroke();
+          }
+
+          // Find next time bucket for interpolation
+          let lo2 = 0, hi2 = timeIndex.length - 1, bestCur = -1;
+          while (lo2 <= hi2) {
+            const mid = (lo2 + hi2) >> 1;
+            if (timeIndex[mid].time <= t) { bestCur = mid; lo2 = mid + 1; }
+            else { hi2 = mid - 1; }
+          }
+          const nextIdx = bestCur + 1;
+          const hasNext = nextIdx < timeIndex.length;
+          const nextSnapshots = hasNext ? timeline.slice(timeIndex[nextIdx].startIdx, timeIndex[nextIdx].endIdx) : [];
+          const nextByGuid = {};
+          for (const ns of nextSnapshots) {
+            nextByGuid[ns.guid] = ns;
+          }
+          const curTime = bestCur >= 0 ? timeIndex[bestCur].time : 0;
+          const nextTime = hasNext ? timeIndex[nextIdx].time : curTime + 0.5;
+          const lerpFactor = (nextTime > curTime) ? Math.min(1, Math.max(0, (t - curTime) / (nextTime - curTime))) : 0;
+
+          // Draw player dots with interpolated positions
+          ctx.font = '10px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          for (const s of snapshots) {
+            if (s.pos_x == null || s.pos_y == null) continue;
+            let gx = -s.pos_y;
+            let gy = s.pos_x;
+
+            // Interpolate toward next position
+            const ns = nextByGuid[s.guid];
+            if (ns && ns.pos_x != null && ns.pos_y != null) {
+              const ngx = -ns.pos_y;
+              const ngy = ns.pos_x;
+              gx = gx + (ngx - gx) * lerpFactor;
+              gy = gy + (ngy - gy) * lerpFactor;
+            }
+
+            const cx = offsetX + (gx - minX) * scale;
+            const cy = offsetY + (gy - minY) * scale;
+            const color = classColor(s.class_name);
+
+            if (s.is_dead) {
+              ctx.strokeStyle = '#666';
+              ctx.lineWidth = 2;
+              ctx.beginPath(); ctx.moveTo(cx - 4, cy - 4); ctx.lineTo(cx + 4, cy + 4); ctx.stroke();
+              ctx.beginPath(); ctx.moveTo(cx + 4, cy - 4); ctx.lineTo(cx - 4, cy + 4); ctx.stroke();
+            } else {
+              ctx.beginPath();
+              ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+              ctx.fillStyle = color;
+              ctx.fill();
+              ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+              ctx.lineWidth = 1;
+              ctx.stroke();
+
+              if (s.max_hp > 0) {
+                const hpPct = s.current_hp / s.max_hp;
+                if (hpPct < 1) {
+                  ctx.beginPath();
+                  ctx.arc(cx, cy, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * hpPct);
+                  ctx.strokeStyle = color;
+                  ctx.lineWidth = 2;
+                  ctx.stroke();
+                }
+              }
+            }
+
+            ctx.fillStyle = s.is_dead ? '#666' : 'rgba(255,255,255,0.8)';
+            ctx.fillText(s.name.split('-')[0], cx, cy - 12);
+          }
+
+          // Draw boss marker (red diamond)
+          if (bossPos.length > 0) {
+            // Binary search for current boss position
+            let bLo = 0, bHi = bossPos.length - 1, bBest = -1;
+            while (bLo <= bHi) {
+              const mid = (bLo + bHi) >> 1;
+              if (bossPos[mid][0] <= t) { bBest = mid; bLo = mid + 1; }
+              else { bHi = mid - 1; }
+            }
+            if (bBest >= 0) {
+              let bgx = -bossPos[bBest][2];
+              let bgy = bossPos[bBest][1];
+              // Lerp to next boss position
+              if (bBest + 1 < bossPos.length) {
+                const curT = bossPos[bBest][0];
+                const nextT = bossPos[bBest + 1][0];
+                const f = (nextT > curT) ? Math.min(1, (t - curT) / (nextT - curT)) : 0;
+                const ngx = -bossPos[bBest + 1][2];
+                const ngy = bossPos[bBest + 1][1];
+                bgx += (ngx - bgx) * f;
+                bgy += (ngy - bgy) * f;
+              }
+              const bcx = offsetX + (bgx - minX) * scale;
+              const bcy = offsetY + (bgy - minY) * scale;
+              // Draw diamond shape
+              const ds = 10;
+              ctx.beginPath();
+              ctx.moveTo(bcx, bcy - ds);
+              ctx.lineTo(bcx + ds, bcy);
+              ctx.lineTo(bcx, bcy + ds);
+              ctx.lineTo(bcx - ds, bcy);
+              ctx.closePath();
+              ctx.fillStyle = '#ef4444';
+              ctx.fill();
+              ctx.strokeStyle = '#000';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+              // Boss label
+              ctx.font = 'bold 11px Inter, sans-serif';
+              ctx.fillStyle = '#ef4444';
+              ctx.fillText(enc.name || 'Boss', bcx, bcy - 14);
+            }
+          }
+        }
+      }
+
+      slider.addEventListener('input', () => {
+        updateDisplay(parseInt(slider.value));
+      });
+
+      playBtn.addEventListener('click', () => {
+        playing = !playing;
+        playBtn.textContent = playing ? '⏸' : '▶';
+        if (playing) {
+          lastFrameTime = performance.now();
+          animate();
+        } else if (animFrame) {
+          cancelAnimationFrame(animFrame);
+          animFrame = null;
+        }
+      });
+
+      speedBtn.addEventListener('click', () => {
+        speedIdx = (speedIdx + 1) % speeds.length;
+        speedBtn.textContent = speeds[speedIdx] + '×';
+      });
+
+      let accumulator = 0;
+
+      function animate() {
+        if (!playing) return;
+        const now = performance.now();
+        const dt = (now - lastFrameTime) / 1000;
+        lastFrameTime = now;
+
+        accumulator += dt * speeds[speedIdx] * 10;
+        const advance = Math.floor(accumulator);
+        if (advance > 0) {
+          accumulator -= advance;
+          let val = parseInt(slider.value) + advance;
+          const maxVal = parseInt(slider.max);
+          if (val >= maxVal) {
+            val = maxVal;
+            playing = false;
+            playBtn.textContent = '▶';
+          }
+          slider.value = val;
+          updateDisplay(val);
+        }
+
+        if (playing) {
+          animFrame = requestAnimationFrame(animate);
+        }
+      }
+
+      // Initial display at t=0
+      updateDisplay(0);
+    }
+
+    // ========== Init ==========
+    loadLogFiles();
+  </script>
+
+</body>
+
+</html>
