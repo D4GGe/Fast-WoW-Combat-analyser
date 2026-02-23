@@ -6,3 +6,4 @@ frontend/dist
 Cargo.lock
 *.log
 *.txt
+*.bak
