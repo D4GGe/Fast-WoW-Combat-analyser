@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Command;
 
 fn main() {
     let logo_path = Path::new("assets/logo.png");
@@ -32,5 +33,56 @@ fn main() {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("assets/icon.ico");
         res.compile().expect("Failed to compile Windows resource");
+    }
+
+    // Build frontend during release builds
+    let frontend_dir = Path::new("frontend");
+    if frontend_dir.join("package.json").exists() {
+        // Only rebuild if source files changed
+        println!("cargo:rerun-if-changed=frontend/src");
+        println!("cargo:rerun-if-changed=frontend/index.html");
+        println!("cargo:rerun-if-changed=frontend/vite.config.ts");
+        println!("cargo:rerun-if-changed=frontend/tsconfig.json");
+
+        // Install deps if node_modules missing
+        if !frontend_dir.join("node_modules").exists() {
+            let status = if cfg!(target_os = "windows") {
+                Command::new("cmd")
+                    .args(["/C", "npm", "install"])
+                    .current_dir(frontend_dir)
+                    .status()
+            } else {
+                Command::new("npm")
+                    .args(["install"])
+                    .current_dir(frontend_dir)
+                    .status()
+            };
+            match status {
+                Ok(s) if !s.success() => panic!("npm install failed"),
+                Err(e) => {
+                    println!("cargo:warning=Could not run npm install: {}", e);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // Build frontend
+        let status = if cfg!(target_os = "windows") {
+            Command::new("cmd")
+                .args(["/C", "npm", "run", "build"])
+                .current_dir(frontend_dir)
+                .status()
+        } else {
+            Command::new("npm")
+                .args(["run", "build"])
+                .current_dir(frontend_dir)
+                .status()
+        };
+        match status {
+            Ok(s) if !s.success() => panic!("Frontend build failed"),
+            Err(e) => println!("cargo:warning=Could not run npm run build: {}", e),
+            _ => {}
+        }
     }
 }

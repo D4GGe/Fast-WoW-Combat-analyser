@@ -1169,13 +1169,13 @@ function initReplayControls(enc: EncounterSummary) {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
     for (const s of timeline) {
         if (s.pos_x != null && s.pos_y != null) {
-            const gx = -s.pos_y, gy = s.pos_x
+            const gx = s.pos_y, gy = -s.pos_x
             if (gx < minX) minX = gx; if (gx > maxX) maxX = gx
             if (gy < minY) minY = gy; if (gy > maxY) maxY = gy
         }
     }
     for (const bp of bossPos) {
-        const bgx = -bp[2], bgy = bp[1]
+        const bgx = bp[2], bgy = -bp[1]
         if (bgx < minX) minX = bgx; if (bgx > maxX) maxX = bgx
         if (bgy < minY) minY = bgy; if (bgy > maxY) maxY = bgy
     }
@@ -1291,10 +1291,10 @@ function initReplayControls(enc: EncounterSummary) {
             ctx.textAlign = 'center'
             for (const s of snapshots) {
                 if (s.pos_x == null || s.pos_y == null) continue
-                let gx = -s.pos_y, gy = s.pos_x
+                let gx = s.pos_y, gy = -s.pos_x
                 const ns = nextByGuid[s.guid]
                 if (ns && ns.pos_x != null && ns.pos_y != null) {
-                    const ngx = -ns.pos_y, ngy = ns.pos_x
+                    const ngx = ns.pos_y, ngy = -ns.pos_x
                     gx += (ngx - gx) * lerpFactor; gy += (ngy - gy) * lerpFactor
                 }
                 const cx = offsetX + (gx - minX) * scale, cy = offsetY + (gy - minY) * scale
@@ -1328,11 +1328,11 @@ function initReplayControls(enc: EncounterSummary) {
                     if (bossPos[mid][0] <= t) { bBest = mid; bLo = mid + 1 } else bHi = mid - 1
                 }
                 if (bBest >= 0) {
-                    let bgx = -bossPos[bBest][2], bgy = bossPos[bBest][1]
+                    let bgx = bossPos[bBest][2], bgy = -bossPos[bBest][1]
                     if (bBest + 1 < bossPos.length) {
                         const curBT = bossPos[bBest][0], nextBT = bossPos[bBest + 1][0]
                         const f = (nextBT > curBT) ? Math.min(1, (t - curBT) / (nextBT - curBT)) : 0
-                        bgx += (-bossPos[bBest + 1][2] - bgx) * f; bgy += (bossPos[bBest + 1][1] - bgy) * f
+                        bgx += (bossPos[bBest + 1][2] - bgx) * f; bgy += (-bossPos[bBest + 1][1] - bgy) * f
                     }
                     const bcx = offsetX + (bgx - minX) * scale, bcy = offsetY + (bgy - minY) * scale
                     const ds = 10

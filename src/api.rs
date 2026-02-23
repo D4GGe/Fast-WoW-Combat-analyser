@@ -9,17 +9,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 use std::collections::HashMap;
-use tower_http::services::ServeDir;
+use rust_embed::Embed;
 
 use crate::models::*;
 use crate::parser;
 
-pub struct AppState {
-    pub log_dir: Arc<std::sync::Mutex<PathBuf>>,
-    /// Cache: filename -> (file_size_at_parse, parsed_summary)
-    pub cache: Mutex<HashMap<String, (u64, CombatLogSummary)>>,
-    /// Shutdown signal
-    pub shutdown: Arc<Notify>,
+#[derive(Embed)]
+#[folder = "frontend/dist"]
+struct FrontendAssets;
+
+struct AppState {
+    log_dir: Arc<std::sync::Mutex<PathBuf>>,
+    cache: Mutex<HashMap<String, (u64, CombatLogSummary)>>,
+    shutdown: Arc<Notify>,
 }
 
 pub fn create_router(log_dir: Arc<std::sync::Mutex<PathBuf>>, shutdown: Arc<Notify>) -> Router {
@@ -29,29 +31,6 @@ pub fn create_router(log_dir: Arc<std::sync::Mutex<PathBuf>>, shutdown: Arc<Noti
         shutdown,
     });
 
-    // Determine the dist directory path relative to the executable
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."));
-
-    // Try frontend/dist relative to the exe, then relative to cwd
-    let dist_dir = if exe_dir.join("frontend/dist").exists() {
-        exe_dir.join("frontend/dist")
-    } else if PathBuf::from("frontend/dist").exists() {
-        PathBuf::from("frontend/dist")
-    } else {
-        // Fallback: try parent dirs (common in dev builds where exe is in target/release)
-        exe_dir.parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.join("frontend/dist"))
-            .filter(|p| p.exists())
-            .unwrap_or_else(|| PathBuf::from("frontend/dist"))
-    };
-
-    let serve_dir = ServeDir::new(&dist_dir)
-        .fallback(get(spa_fallback));
-
     Router::new()
         .route("/logo.png", get(serve_logo))
         .route("/favicon.png", get(serve_favicon))
@@ -59,34 +38,38 @@ pub fn create_router(log_dir: Arc<std::sync::Mutex<PathBuf>>, shutdown: Arc<Noti
         .route("/api/logs/{filename}/summary", get(log_summary))
         .route("/api/logs/{filename}/encounter/{index}", get(encounter_detail))
         .route("/api/spell_tooltips", get(serve_spell_tooltips))
-        .fallback_service(serve_dir)
+        .fallback(get(embedded_frontend))
         .with_state(state)
 }
 
-/// SPA fallback: serve index.html for any route not matched by the API or static files
-async fn spa_fallback() -> impl axum::response::IntoResponse {
-    // Read index.html from the dist directory at runtime
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."));
+/// Serve embedded frontend assets, with SPA fallback to index.html
+async fn embedded_frontend(uri: axum::http::Uri) -> impl axum::response::IntoResponse {
+    let path = uri.path().trim_start_matches('/');
 
-    let index_path = if exe_dir.join("frontend/dist/index.html").exists() {
-        exe_dir.join("frontend/dist/index.html")
-    } else if PathBuf::from("frontend/dist/index.html").exists() {
-        PathBuf::from("frontend/dist/index.html")
-    } else {
-        exe_dir.parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.join("frontend/dist/index.html"))
-            .filter(|p| p.exists())
-            .unwrap_or_else(|| PathBuf::from("frontend/dist/index.html"))
-    };
-
-    match std::fs::read_to_string(&index_path) {
-        Ok(html) => Html(html),
-        Err(_) => Html("<h1>Frontend not built</h1><p>Run 'npm run build' in the frontend directory.</p>".to_string()),
+    // Try to serve the exact file
+    if let Some(file) = FrontendAssets::get(path) {
+        let mime = mime_guess::from_path(path).first_or_octet_stream();
+        return (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, mime.as_ref().to_string())],
+            file.data.to_vec(),
+        );
     }
+
+    // SPA fallback: serve index.html for any unmatched route
+    if let Some(index) = FrontendAssets::get("index.html") {
+        return (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "text/html".to_string())],
+            index.data.to_vec(),
+        );
+    }
+
+    (
+        StatusCode::NOT_FOUND,
+        [(axum::http::header::CONTENT_TYPE, "text/plain".to_string())],
+        b"Not Found".to_vec(),
+    )
 }
 
 async fn serve_logo() -> impl axum::response::IntoResponse {
@@ -293,5 +276,3 @@ fn find_file_recursive(dir: &std::path::Path, target: &str) -> Option<std::path:
     }
     None
 }
-
-

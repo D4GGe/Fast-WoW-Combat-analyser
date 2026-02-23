@@ -452,6 +452,8 @@ struct EventTracker {
     damage_taken_by_player: HashMap<String, u64>,
     player_names: HashMap<String, String>,
     death_events: Vec<DeathEvent>,
+    /// Combat res events: (elapsed_secs, player_guid)
+    res_events: Vec<(f64, String)>,
     player_death_counts: HashMap<String, u32>,
     last_damage_to: HashMap<String, (String, String, u64, i64)>,
     /// Recent damage/heal events per player for death recap (last 15 events)
@@ -524,6 +526,7 @@ impl EventTracker {
             damage_taken_by_player: HashMap::new(),
             player_names: HashMap::new(),
             death_events: Vec::new(),
+            res_events: Vec::new(),
             player_death_counts: HashMap::new(),
             last_damage_to: HashMap::new(),
             recent_events: HashMap::new(),
@@ -1234,10 +1237,16 @@ impl EventTracker {
         let mut last_hp: HashMap<String, (u64, u64)> = HashMap::new();
         // Track last known position per player
         let mut last_pos: HashMap<String, (f64, f64)> = HashMap::new();
-        // Track death times per player
-        let mut death_times: HashMap<String, f64> = HashMap::new();
+        // Track death and res times per player for is_dead determination
+        // Collect all death times
+        let mut death_times_vec: HashMap<String, Vec<f64>> = HashMap::new();
         for d in &self.death_events {
-            death_times.entry(d.player_guid.clone()).or_insert(d.time_into_fight_secs);
+            death_times_vec.entry(d.player_guid.clone()).or_default().push(d.time_into_fight_secs);
+        }
+        // Collect all res times
+        let mut res_times_vec: HashMap<String, Vec<f64>> = HashMap::new();
+        for (t, guid) in &self.res_events {
+            res_times_vec.entry(guid.clone()).or_default().push(*t);
         }
 
         // Sort hp_events by time
@@ -1282,7 +1291,16 @@ impl EventTracker {
                         .and_then(|id| spec_info(*id))
                         .map(|(c, _, _)| c.to_string())
                         .unwrap_or_default();
-                    let is_dead = death_times.get(guid).map(|dt| t >= *dt).unwrap_or(false);
+                    // Determine is_dead: compare latest death time vs latest res time
+                    let last_death = death_times_vec.get(guid)
+                        .and_then(|times| times.iter().filter(|&&dt| dt <= t).last().copied());
+                    let last_res = res_times_vec.get(guid)
+                        .and_then(|times| times.iter().filter(|&&rt| rt <= t).last().copied());
+                    let is_dead = match (last_death, last_res) {
+                        (Some(dt), Some(rt)) => dt > rt, // dead if died after last res
+                        (Some(_), None) => true,          // died, never resurrected
+                        _ => false,                       // never died
+                    };
                     let (pos_x, pos_y) = last_pos.get(guid)
                         .map(|&(x, y)| (Some(x), Some(y)))
                         .unwrap_or((None, None));
@@ -1708,6 +1726,13 @@ fn process_combat_event(
                     "Other"
                 };
                 tracker.creature_types.entry(dest_name.clone()).or_insert_with(|| guid_type.to_string());
+            }
+        }
+        "SPELL_RESURRECT" => {
+            // Track combat resurrections for replay
+            if dest_guid.starts_with("Player-") {
+                let elapsed = timestamp_secs - start_secs;
+                tracker.res_events.push((elapsed, dest_guid.clone()));
             }
         }
         _ => {}
