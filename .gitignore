@@ -1,6 +1,7 @@
 /target
 .env
 *.exe
+FastWoWCombatAnalyzer.exe
 frontend/node_modules
 frontend/dist
 Cargo.lock
