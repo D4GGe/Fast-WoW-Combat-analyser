@@ -194,6 +194,8 @@ export default function EncounterDetail() {
             }
         }
         if (activeTab === 'replay' && enc.replay_timeline?.length > 0) {
+            // Clean up any previous replay before starting a new one
+            if ((window as any).__replayCleanup) { (window as any).__replayCleanup(); (window as any).__replayCleanup = null }
             setTimeout(() => initReplayControls(enc), 0)
         }
         // Init timeline range slider for damage tab
@@ -1138,6 +1140,9 @@ function drawUptimeBar(ctx: CanvasRenderingContext2D, x1: number, x2: number, st
 // ========== Replay controls ==========
 
 function initReplayControls(enc: EncounterSummary) {
+    // Cancel any previous replay animation
+    if ((window as any).__replayCleanup) { (window as any).__replayCleanup(); (window as any).__replayCleanup = null }
+
     const slider = document.getElementById('replay-slider') as HTMLInputElement
     const timeDisplay = document.getElementById('replay-time')
     const playBtn = document.getElementById('replay-play-btn')
@@ -1375,6 +1380,12 @@ function initReplayControls(enc: EncounterSummary) {
         if (playing) animFrame = requestAnimationFrame(animate)
     }
 
+    // Store cleanup for this replay instance
+    ; (window as any).__replayCleanup = () => {
+        playing = false
+        if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null }
+    }
+
     // Initial display
     updateDisplay(0)
 }
@@ -1461,7 +1472,12 @@ function buildEncounterPills(summary: CombatLogSummary, currentEnc: EncounterSum
         const bgCol = isCurrent ? (killed ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)') : 'var(--bg-card)'
         const textCol = isCurrent ? 'var(--text-primary)' : (killed ? 'var(--accent-green)' : 'var(--accent-red)')
         const killPull = g.pulls.find(p => p.success) || g.pulls[0]
-        return `<div data-enc-index="${killPull.index}" style="flex:1;padding:6px 12px;border-radius:6px;cursor:pointer;border:1px solid ${borderCol};background:${bgCol};transition:all 0.15s;white-space:nowrap;font-size:12px;text-align:center;color:${textCol};font-weight:${isCurrent ? '600' : '400'}">${abbr}</div>`
+        const pullCount = g.pulls.length
+        const subLine = `${pullCount} pull${pullCount > 1 ? 's' : ''}`
+        return `<div data-enc-index="${killPull.index}" style="flex:1;padding:6px 12px;border-radius:6px;cursor:pointer;border:1px solid ${borderCol};background:${bgCol};transition:all 0.15s;white-space:nowrap;text-align:center;color:${textCol};font-weight:${isCurrent ? '600' : '400'}">
+            <div style="font-size:12px;line-height:1.3">${abbr}</div>
+            <div style="font-size:10px;opacity:0.7;line-height:1.3">${subLine}</div>
+        </div>`
     }).join('')
 
     // --- BOTTOM ROW: Trash + Pulls for current boss ---
@@ -1480,8 +1496,10 @@ function buildEncounterPills(summary: CombatLogSummary, currentEnc: EncounterSum
             const col = p.success ? 'var(--accent-green)' : 'var(--accent-red)'
             const bg = isActive ? (p.success ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)') : 'var(--bg-secondary)'
             const border = isActive ? col : 'var(--border-color)'
+            const hp = p.boss_hp_pct
+            const hpStr = hp !== null && hp !== undefined ? (hp === 0 ? ' · 0%' : ` · ${hp.toFixed(1)}%`) : ''
             items.push(`<div data-enc-index="${p.index}" style="flex:1;padding:5px 8px;border-radius:4px;cursor:pointer;border:1px solid ${border};background:${bg};transition:all 0.15s;text-align:center;font-size:11px;font-weight:600;color:${isActive ? col : 'var(--text-secondary)'};position:relative;overflow:hidden">
-                <span style="position:relative;z-index:1">P${i + 1}</span>
+                <span style="position:relative;z-index:1">${i + 1}${hpStr}</span>
                 <div style="position:absolute;bottom:0;left:0;width:100%;height:3px;background:${col};opacity:${p.success ? '1' : '0.5'}"></div>
             </div>`)
         })
