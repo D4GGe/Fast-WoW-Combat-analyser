@@ -263,7 +263,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             add_button(hwnd, "Stop Server", 254, 400, 222, 44, ID_STOP, font);
 
             // Credits
-            add_label(hwnd, "Made with \u{2665} by D4GGe  \u{2022}  v0.2.0", 20, 530, 460, 20, font_sm, true);
+            add_label(hwnd, "Made with \u{2665} by D4GGe  \u{2022}  v0.3.0", 20, 530, 460, 20, font_sm, true);
 
             LRESULT(0)
         }

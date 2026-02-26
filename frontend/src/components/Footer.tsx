@@ -7,7 +7,7 @@ export default function Footer() {
             color: 'var(--text-muted)',
             borderTop: '1px solid var(--border-color)',
         }}>
-            Made with ♥ by D4GGe &nbsp;•&nbsp; v0.2.0
+            Made with ♥ by D4GGe &nbsp;•&nbsp; v0.3.0
         </footer>
     )
 }
