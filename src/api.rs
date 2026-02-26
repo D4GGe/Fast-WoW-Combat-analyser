@@ -37,6 +37,7 @@ pub fn create_router(log_dir: Arc<std::sync::Mutex<PathBuf>>, shutdown: Arc<Noti
         .route("/api/logs", get(list_logs))
         .route("/api/logs/{filename}/summary", get(log_summary))
         .route("/api/logs/{filename}/encounter/{index}", get(encounter_detail))
+        .route("/api/logs/{filename}/encounter/{index}/replay", get(encounter_replay))
         .route("/api/spell_tooltips", get(serve_spell_tooltips))
         .fallback(get(embedded_frontend))
         .with_state(state)
@@ -220,6 +221,28 @@ async fn encounter_detail(
     let path = find_file_recursive(&log_dir, &filename)
         .ok_or((StatusCode::NOT_FOUND, "Log file not found".to_string()))?;
 
+    // Check current file size
+    let current_size = std::fs::metadata(&path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    // Check cache first — if file size unchanged, use cached summary
+    {
+        let cache = state.cache.lock().await;
+        if let Some((cached_size, cached_summary)) = cache.get(&filename) {
+            if *cached_size == current_size {
+                println!("📦 Cache HIT for {} encounter {} (size unchanged)", filename, index);
+                return cached_summary.encounters.iter().nth(index)
+                    .cloned()
+                    .map(Json)
+                    .ok_or((StatusCode::NOT_FOUND, "Encounter not found".to_string()));
+            }
+        }
+    }
+
+    // Not cached or file changed — parse it
+    println!("🔄 Parsing {} for encounter {} (no cache)", filename, index);
+    let fname = filename.clone();
     let summary = tokio::task::spawn_blocking(move || {
         parser::parse_combat_log(&path)
     })
@@ -227,9 +250,79 @@ async fn encounter_detail(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task failed: {}", e)))?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    summary.encounters.into_iter().nth(index)
+    let result = summary.encounters.iter().nth(index)
+        .cloned()
         .map(Json)
-        .ok_or((StatusCode::NOT_FOUND, "Encounter not found".to_string()))
+        .ok_or((StatusCode::NOT_FOUND, "Encounter not found".to_string()));
+
+    // Store in cache for future requests
+    {
+        let mut cache = state.cache.lock().await;
+        cache.insert(fname, (current_size, summary));
+    }
+
+    result
+}
+
+async fn encounter_replay(
+    State(state): State<Arc<AppState>>,
+    Path((filename, index)): Path<(String, usize)>,
+) -> Result<Json<ReplayData>, (StatusCode, String)> {
+    // Sanitize filename
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
+    }
+
+    let log_dir = state.log_dir.lock().unwrap().clone();
+    let path = find_file_recursive(&log_dir, &filename)
+        .ok_or((StatusCode::NOT_FOUND, "Log file not found".to_string()))?;
+
+    let current_size = std::fs::metadata(&path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    // Check cache
+    {
+        let cache = state.cache.lock().await;
+        if let Some((cached_size, cached_summary)) = cache.get(&filename) {
+            if *cached_size == current_size {
+                println!("📦 Replay cache HIT for {} encounter {}", filename, index);
+                let enc = cached_summary.encounters.iter().nth(index)
+                    .ok_or((StatusCode::NOT_FOUND, "Encounter not found".to_string()))?;
+                return Ok(Json(ReplayData {
+                    replay_timeline: enc.replay_timeline.clone(),
+                    boss_positions: enc.boss_positions.clone(),
+                    raw_ability_events: enc.raw_ability_events.clone(),
+                }));
+            }
+        }
+    }
+
+    // Parse if not cached
+    let fname = filename.clone();
+    let summary = tokio::task::spawn_blocking(move || {
+        parser::parse_combat_log(&path)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task failed: {}", e)))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let enc = summary.encounters.iter().nth(index)
+        .ok_or((StatusCode::NOT_FOUND, "Encounter not found".to_string()))?;
+
+    let result = Ok(Json(ReplayData {
+        replay_timeline: enc.replay_timeline.clone(),
+        boss_positions: enc.boss_positions.clone(),
+        raw_ability_events: enc.raw_ability_events.clone(),
+    }));
+
+    // Store in cache
+    {
+        let mut cache = state.cache.lock().await;
+        cache.insert(fname, (current_size, summary));
+    }
+
+    result
 }
 
 fn format_size(bytes: u64) -> String {

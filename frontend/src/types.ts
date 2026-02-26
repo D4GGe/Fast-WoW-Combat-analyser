@@ -40,9 +40,9 @@ export interface EncounterSummary {
     phases: PhaseBreakdown[];
     time_bucketed_player_damage: Record<number, Record<string, number>>;
     boss_hp_timeline: [number, number][];
-    replay_timeline: HpSnapshot[];
-    boss_positions: [number, number, number][];
-    raw_ability_events: [number, string, number, string, number, number, string][];
+    replay_timeline?: HpSnapshot[];
+    boss_positions?: [number, number, number][];
+    raw_ability_events?: [number, string, number, string, number, number, string][];
 }
 
 export interface BossEncounter {
@@ -115,6 +115,7 @@ export interface AbilityBreakdown {
     hit_count: number;
     wowhead_url: string;
     targets: TargetBreakdown[];
+    sub_abilities?: AbilityBreakdown[];
 }
 
 export interface TargetBreakdown {
@@ -202,4 +203,10 @@ export interface SpellTooltip {
     name?: string;
     icon_url?: string;
     description?: string;
+}
+
+export interface ReplayData {
+    replay_timeline: HpSnapshot[];
+    boss_positions: [number, number, number][];
+    raw_ability_events: [number, string, number, string, number, number, string][];
 }

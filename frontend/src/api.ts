@@ -33,3 +33,9 @@ export async function fetchSpellTooltips(): Promise<Record<string, { name?: stri
         return {};
     }
 }
+
+export async function fetchReplayData(filename: string, index: number): Promise<import('./types').ReplayData> {
+    const res = await fetch(`${API_BASE}/api/logs/${encodeURIComponent(filename)}/encounter/${index}/replay`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}

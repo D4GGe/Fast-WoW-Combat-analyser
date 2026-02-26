@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
-import { fetchSummary } from '../../api'
-import type { CombatLogSummary, EncounterSummary, PlayerSummary, AbilityBreakdown, KeySegment, TrashPull } from '../../types'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { fetchSummary, fetchReplayData } from '../../api'
+import type { CombatLogSummary, EncounterSummary, PlayerSummary, AbilityBreakdown, KeySegment, TrashPull, ReplayData } from '../../types'
 import { formatDuration, formatNumber, classColor, roleIcon, getSchoolColor } from '../../utils'
 import { spellHtml } from '../../components/SpellTooltip'
 import { useSpellTooltips } from '../../hooks/useSpellTooltips'
@@ -132,16 +132,27 @@ function mergeAbilities(target: AbilityBreakdown[], source: AbilityBreakdown[]) 
 export default function EncounterDetail() {
     const { filename, index } = useParams<{ filename: string; index: string }>()
     const navigate = useNavigate()
+    const [searchParams, setSearchParams] = useSearchParams()
     const [summary, setSummary] = useState<CombatLogSummary | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [activeTab, setActiveTab] = useState<TabId>('damage')
+    const urlTab = searchParams.get('tab')
+    const validTab = (urlTab && TABS.some(t => t.id === urlTab)) ? urlTab as TabId : 'damage'
+    const [activeTab, setActiveTab] = useState<TabId>(validTab)
     const [selectedSegments, setSelectedSegments] = useState<Set<number> | null>(null) // null = all
     const [selectedPulls, setSelectedPulls] = useState<Set<number> | null>(null) // null = all
     const contentRef = useRef<HTMLDivElement>(null)
     const { getTooltip } = useSpellTooltips()
+    const [replayData, setReplayData] = useState<ReplayData | null>(null)
+    const [replayLoading, setReplayLoading] = useState(false)
 
     const encIndex = Number(index)
+
+    // Sync activeTab when URL tab param changes (e.g. browser back/forward)
+    useEffect(() => {
+        const t = (urlTab && TABS.some(x => x.id === urlTab)) ? urlTab as TabId : 'damage'
+        setActiveTab(t)
+    }, [urlTab])
 
     useEffect(() => {
         if (!filename) return
@@ -149,6 +160,12 @@ export default function EncounterDetail() {
             .then(({ summary }) => { setSummary(summary); setLoading(false) })
             .catch(e => { setError(e.message); setLoading(false) })
     }, [filename])
+
+    // Reset replay data when switching encounters
+    useEffect(() => {
+        setReplayData(null)
+        setReplayLoading(false)
+    }, [encIndex])
 
     const enc = summary?.encounters[encIndex] ?? null
 
@@ -178,6 +195,23 @@ export default function EncounterDetail() {
     // Inject tab content via innerHTML
     useEffect(() => {
         if (!enc || !contentRef.current) return
+
+        // Lazy-load replay data if needed (before rendering)
+        if (activeTab === 'replay') {
+            if (!replayData && !replayLoading && filename) {
+                setReplayLoading(true)
+                fetchReplayData(filename, encIndex)
+                    .then(data => { setReplayData(data); setReplayLoading(false) })
+                    .catch(() => setReplayLoading(false))
+            }
+            // Inject replay data into encounter before rendering
+            if (replayData && enc.replay_timeline === undefined) {
+                enc.replay_timeline = replayData.replay_timeline
+                enc.boss_positions = replayData.boss_positions
+                enc.raw_ability_events = replayData.raw_ability_events
+            }
+        }
+
         const dataForTab = (activeTab === 'replay') ? enc : (filteredEnc || enc)
         const html = renderTab(activeTab, dataForTab, getTooltip)
         contentRef.current.innerHTML = html
@@ -193,7 +227,7 @@ export default function EncounterDetail() {
                 setTimeout(() => drawBuffTimelines(buffs, dur), 0)
             }
         }
-        if (activeTab === 'replay' && enc.replay_timeline?.length > 0) {
+        if (activeTab === 'replay' && enc.replay_timeline && enc.replay_timeline.length > 0) {
             // Clean up any previous replay before starting a new one
             if ((window as any).__replayCleanup) { (window as any).__replayCleanup(); (window as any).__replayCleanup = null }
             setTimeout(() => initReplayControls(enc), 0)
@@ -290,7 +324,7 @@ export default function EncounterDetail() {
                 endEl.addEventListener('input', updateSlider)
             }, 0)
         }
-    }, [activeTab, enc, filteredEnc, getTooltip])
+    }, [activeTab, enc, filteredEnc, getTooltip, replayData])
 
     // Attach global event handlers for interactive elements
     useEffect(() => {
@@ -331,6 +365,18 @@ export default function EncounterDetail() {
                 if (details) details.style.display = details.style.display === 'none' ? '' : 'none'
                 return
             }
+            // Handle pet ability group toggle
+            const petToggle = target.closest('[data-toggle-pet]')
+            if (petToggle) {
+                const petId = petToggle.getAttribute('data-toggle-pet')!
+                const subRows = document.querySelectorAll(`[data-pet-parent="${petId}"]`)
+                const isVisible = subRows.length > 0 && (subRows[0] as HTMLElement).style.display !== 'none'
+                subRows.forEach(r => (r as HTMLElement).style.display = isVisible ? 'none' : '')
+                // Toggle expand icon
+                const icon = petToggle.querySelector('.pet-expand-icon') as HTMLElement
+                if (icon) icon.textContent = isVisible ? '▶' : '▼'
+                return
+            }
 
             // Handle Self Only button
             if ((target as HTMLElement).id === 'buff-self-only' && enc) {
@@ -361,7 +407,8 @@ export default function EncounterDetail() {
             const encNav = target.closest('[data-enc-index]')
             if (encNav) {
                 const navIdx = encNav.getAttribute('data-enc-index')!
-                navigate(`/log/${encodeURIComponent(filename!)}/encounter/${navIdx}`)
+                const tabParam = activeTab !== 'damage' ? `?tab=${activeTab}` : ''
+                navigate(`/log/${encodeURIComponent(filename!)}/encounter/${navIdx}${tabParam}`)
                 return
             }
         }
@@ -403,7 +450,7 @@ export default function EncounterDetail() {
             document.removeEventListener('click', handleClick)
             document.removeEventListener('change', handleChange)
         }
-    }, [enc, filteredEnc, filename, navigate, getTooltip])
+    }, [enc, filteredEnc, filename, navigate, getTooltip, activeTab])
 
     if (loading) return <div className="loading"><div className="spinner" /><div className="loading-text">Loading encounter...</div></div>
     if (error) return <div className="empty-state"><div className="icon">❌</div><div className="title">Error</div><p>{error}</p></div>
@@ -416,7 +463,7 @@ export default function EncounterDetail() {
     const totalDmg = enc.players.reduce((s, p) => s + p.damage_done, 0)
     const totalHeal = enc.players.reduce((s, p) => s + p.healing_done, 0)
     const typeIcon = enc.encounter_type === 'mythic_plus' ? '🗝️' : enc.encounter_type === 'trash' ? '🗑️' : '⚔️'
-    const hasReplay = enc.replay_timeline && enc.replay_timeline.length > 0
+    const hasReplay = (enc.replay_timeline && enc.replay_timeline.length > 0) || replayData !== null || enc.encounter_type === 'boss'
 
     return (
         <>
@@ -607,7 +654,10 @@ export default function EncounterDetail() {
                     <button
                         key={t.id}
                         className={`tab${activeTab === t.id ? ' active' : ''}`}
-                        onClick={() => setActiveTab(t.id)}
+                        onClick={() => {
+                            setActiveTab(t.id)
+                            setSearchParams({ tab: t.id }, { replace: true })
+                        }}
                     >
                         {t.icon} {t.label}
                     </button>
@@ -849,14 +899,30 @@ function renderAbilityList(player: PlayerSummary | undefined, getTooltip: (id: n
     <thead><tr><th>#</th><th>Ability</th><th>Hits</th><th>Total</th><th></th><th>%</th></tr></thead>
     <tbody>${abilities.map((a, i) => {
         const pct = (a.total_amount / totalDmg * 100).toFixed(1)
-        return `<tr class="ability-row">
+        const hasSubs = a.sub_abilities && a.sub_abilities.length > 0
+        const petId = `abil-pet-${i}`
+        const nameHtml = hasSubs
+            ? `<span style="cursor:pointer;display:inline-flex;align-items:center;gap:4px" data-toggle-pet="${petId}"><span class="pet-expand-icon" style="font-size:10px;color:var(--text-muted);transition:transform 0.2s">▶</span><span style="font-weight:600;color:var(--accent-cyan)">${a.spell_name}</span></span>`
+            : spellHtml(a.spell_id, a.spell_name, a.wowhead_url, getTooltip, { color: getSchoolColor(a.spell_school) })
+        const subRows = hasSubs ? a.sub_abilities!.sort((x, y) => y.total_amount - x.total_amount).map((sub, si) => {
+            const subPct = (sub.total_amount / totalDmg * 100).toFixed(1)
+            return `<tr class="ability-row pet-sub-row" data-pet-parent="${petId}" style="display:none">
+      <td class="rank" style="padding-left:24px"></td>
+      <td class="ability-cell" style="padding-left:24px">${spellHtml(sub.spell_id, sub.spell_name, sub.wowhead_url, getTooltip, { color: getSchoolColor(sub.spell_school) })}</td>
+      <td class="num">${sub.hit_count.toLocaleString()}</td>
+      <td class="num">${formatNumber(sub.total_amount)}</td>
+      <td class="bar-cell"><div class="bar-container"><div class="bar-fill" style="width:${(sub.total_amount / max * 100).toFixed(1)}%;background:${getSchoolColor(sub.spell_school)};opacity:0.4"></div></div></td>
+      <td class="num" style="color:var(--text-muted);font-size:12px">${subPct}%</td>
+    </tr>`
+        }).join('') : ''
+        return `<tr class="ability-row"${hasSubs ? ` style="cursor:pointer" data-toggle-pet="${petId}"` : ''}>
       <td class="rank">${i + 1}</td>
-      <td class="ability-cell">${spellHtml(a.spell_id, a.spell_name, a.wowhead_url, getTooltip, { color: getSchoolColor(a.spell_school) })}</td>
+      <td class="ability-cell">${nameHtml}</td>
       <td class="num">${a.hit_count.toLocaleString()}</td>
       <td class="num">${formatNumber(a.total_amount)}</td>
-      <td class="bar-cell"><div class="bar-container"><div class="bar-fill" style="width:${(a.total_amount / max * 100).toFixed(1)}%;background:${getSchoolColor(a.spell_school)};opacity:0.6"></div></div></td>
+      <td class="bar-cell"><div class="bar-container"><div class="bar-fill" style="width:${(a.total_amount / max * 100).toFixed(1)}%;background:${hasSubs ? 'var(--accent-cyan)' : getSchoolColor(a.spell_school)};opacity:0.6"></div></div></td>
       <td class="num" style="color:var(--text-muted);font-size:12px">${pct}%</td>
-    </tr>`
+    </tr>${subRows}`
     }).join('')}</tbody></table>`
 }
 
@@ -910,25 +976,47 @@ function renderEnemiesTab(enc: EncounterSummary, getTooltip: (id: number, name?:
 }
 
 function renderAbilityBreakdown(abilities: AbilityBreakdown[], totalAmount: number, getTooltip: (id: number, name?: string) => any): string {
-    const sorted = [...abilities].sort((a, b) => b.total_amount - a.total_amount).slice(0, 20)
+    const sorted = [...abilities].sort((a, b) => b.total_amount - a.total_amount).slice(0, 25)
     if (sorted.length === 0) return '<div style="padding:12px;color:var(--text-muted)">No ability data</div>'
     const maxAbility = Math.max(...sorted.map(a => a.total_amount), 1)
-    return `<table style="width:100%;border-collapse:collapse">${sorted.map(a => {
+    return `<table style="width:100%;border-collapse:collapse">${sorted.map((a, idx) => {
         const pct = totalAmount > 0 ? (a.total_amount / totalAmount * 100).toFixed(1) : '0.0'
         const barW = (a.total_amount / maxAbility * 100).toFixed(1)
-        return `<tr class="ability-row">
+        const hasSubs = a.sub_abilities && a.sub_abilities.length > 0
+        const petId = `pet-group-${idx}`
+        const nameHtml = hasSubs
+            ? `<span style="cursor:pointer;display:inline-flex;align-items:center;gap:4px" data-toggle-pet="${petId}"><span class="pet-expand-icon" style="font-size:10px;color:var(--text-muted);transition:transform 0.2s">▶</span><span style="font-weight:600;color:var(--accent-cyan)">${a.spell_name}</span></span>`
+            : spellHtml(a.spell_id, a.spell_name, a.wowhead_url, getTooltip, { color: getSchoolColor(a.spell_school), iconSize: 18, stopClick: true })
+        const subRows = hasSubs ? a.sub_abilities!.sort((x, y) => y.total_amount - x.total_amount).map(sub => {
+            const subPct = totalAmount > 0 ? (sub.total_amount / totalAmount * 100).toFixed(1) : '0.0'
+            const subBarW = (sub.total_amount / maxAbility * 100).toFixed(1)
+            return `<tr class="ability-row pet-sub-row" data-pet-parent="${petId}" style="display:none">
+      <td style="padding:4px 12px 4px 32px;width:30%;white-space:nowrap">
+        ${spellHtml(sub.spell_id, sub.spell_name, sub.wowhead_url, getTooltip, { color: getSchoolColor(sub.spell_school), iconSize: 16, stopClick: true })}
+        <span style="color:var(--text-muted);font-size:10px;margin-left:4px">${sub.hit_count} hits</span>
+      </td>
+      <td style="padding:4px 8px;width:50%">
+        <div style="position:relative;height:14px;background:rgba(255,255,255,0.02);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${subBarW}%;background:linear-gradient(90deg, rgba(6,182,212,0.3), rgba(59,130,246,0.3));border-radius:3px"></div>
+          <span style="position:absolute;left:8px;top:0;font-size:10px;color:var(--text-muted)">${formatNumber(sub.total_amount)}</span>
+        </div>
+      </td>
+      <td style="padding:4px 12px;text-align:right;font-size:12px;color:var(--text-muted);font-weight:500">${subPct}%</td>
+    </tr>`
+        }).join('') : ''
+        return `<tr class="ability-row"${hasSubs ? ` style="cursor:pointer" data-toggle-pet="${petId}"` : ''}>
       <td style="padding:6px 12px;width:30%;white-space:nowrap">
-        ${spellHtml(a.spell_id, a.spell_name, a.wowhead_url, getTooltip, { color: getSchoolColor(a.spell_school), iconSize: 18, stopClick: true })}
+        ${nameHtml}
         <span style="color:var(--text-muted);font-size:11px;margin-left:4px">${a.hit_count} hits</span>
       </td>
       <td style="padding:6px 8px;width:50%">
         <div style="position:relative;height:18px;background:rgba(255,255,255,0.03);border-radius:4px;overflow:hidden">
-          <div style="height:100%;width:${barW}%;background:linear-gradient(90deg, rgba(139,92,246,0.4), rgba(59,130,246,0.4));border-radius:4px"></div>
+          <div style="height:100%;width:${barW}%;background:linear-gradient(90deg, ${hasSubs ? 'rgba(6,182,212,0.4), rgba(99,102,241,0.4)' : 'rgba(139,92,246,0.4), rgba(59,130,246,0.4)'});border-radius:4px"></div>
           <span style="position:absolute;left:8px;top:1px;font-size:11px;color:var(--text-secondary)">${formatNumber(a.total_amount)}</span>
         </div>
       </td>
       <td style="padding:6px 12px;text-align:right;font-size:13px;color:var(--text-secondary);font-weight:500">${pct}%</td>
-    </tr>`
+    </tr>${subRows}`
     }).join('')}</table>`
 }
 
@@ -997,7 +1085,7 @@ function renderBuffList(buffs: any[], dur: number, getTooltip: (id: number, name
 
 function renderReplayTab(enc: EncounterSummary): string {
     if (!enc.replay_timeline || enc.replay_timeline.length === 0) {
-        return '<div class="empty-state"><div class="icon">🎬</div><div class="title">No replay data</div><p>HP data not available for this encounter.</p></div>'
+        return '<div class="loading"><div class="spinner"></div><div class="loading-text">Loading replay data...</div></div>'
     }
     const dur = enc.duration_secs || 1
     const fmtTime = (s: number) => { const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return m + ':' + (sec < 10 ? '0' : '') + sec }

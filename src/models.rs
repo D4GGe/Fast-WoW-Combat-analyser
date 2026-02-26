@@ -45,10 +45,21 @@ pub struct EncounterSummary {
     /// Boss HP timeline: Vec of (elapsed_secs, hp_pct) sampled at damage events
     pub boss_hp_timeline: Vec<(f64, f64)>,
     /// Replay timeline: per-player HP snapshots sampled every 0.5s
+    #[serde(skip_serializing)]
     pub replay_timeline: Vec<HpSnapshot>,
     /// Boss positions on the map: (elapsed_secs, pos_x, pos_y)
+    #[serde(skip_serializing)]
     pub boss_positions: Vec<(f64, f64, f64)>,
     /// Raw ability events for time filtering: (elapsed_secs, player_guid, spell_id, spell_name, spell_school, amount, target_name)
+    #[serde(skip_serializing)]
+    pub raw_ability_events: Vec<(f64, String, u64, String, u32, u64, String)>,
+}
+
+/// Replay data served via a separate endpoint (lazy-loaded)
+#[derive(Debug, Serialize, Clone)]
+pub struct ReplayData {
+    pub replay_timeline: Vec<HpSnapshot>,
+    pub boss_positions: Vec<(f64, f64, f64)>,
     pub raw_ability_events: Vec<(f64, String, u64, String, u32, u64, String)>,
 }
 
@@ -137,6 +148,9 @@ pub struct AbilityBreakdown {
     pub hit_count: u32,
     pub wowhead_url: String,
     pub targets: Vec<TargetBreakdown>,
+    /// Sub-abilities for pet groups (individual pet spells grouped under pet name)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sub_abilities: Vec<AbilityBreakdown>,
 }
 
 /// Damage/healing per target for an ability

@@ -274,7 +274,7 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                     standalone_id = enc_id;
                     standalone_difficulty = difficulty;
                     standalone_group_size = group_size;
-                    standalone_tracker = EventTracker::new();
+                    standalone_tracker = EventTracker::new_with_context(&trash_tracker);
                     standalone_tracker.boss_encounter_name = standalone_name.clone();
                     standalone_tracker.encounter_start_secs = timestamp_secs;
                 }
@@ -460,6 +460,8 @@ struct EventTracker {
     recent_events: HashMap<String, Vec<RecapEvent>>,
     /// Player spec IDs from COMBATANT_INFO
     player_specs: HashMap<String, u32>,
+    /// Pet ownership: pet_guid -> owner_guid (from SPELL_SUMMON events)
+    pet_owners: HashMap<String, String>,
     /// Per-target damage: player_guid -> spell_id -> target_name -> amount
     damage_targets: HashMap<String, HashMap<u64, HashMap<String, u64>>>,
     /// Per-target healing: player_guid -> spell_id -> target_name -> amount
@@ -516,6 +518,12 @@ struct EventTracker {
     position_events: Vec<(f64, String, f64, f64)>,
     /// Raw boss position events for replay map: (elapsed_secs, pos_x, pos_y)
     boss_position_events: Vec<(f64, f64, f64)>,
+    /// Pet source names for grouping: (owner_guid, spell_id) -> pet_name
+    /// When a pet does damage, we record which pet name the spell came from.
+    pet_source_names: HashMap<(String, u64), String>,
+    /// Pet damage grouped by owner for ability grouping:
+    /// owner_guid -> pet_name -> spell_id -> (spell_name, school, total, hits)
+    pet_damage_by_owner: HashMap<String, HashMap<String, HashMap<u64, (String, u32, u64, u32)>>>,
 }
 
 impl EventTracker {
@@ -531,6 +539,7 @@ impl EventTracker {
             last_damage_to: HashMap::new(),
             recent_events: HashMap::new(),
             player_specs: HashMap::new(),
+            pet_owners: HashMap::new(),
             damage_targets: HashMap::new(),
             healing_targets: HashMap::new(),
             raw_aura_events: HashMap::new(),
@@ -559,6 +568,8 @@ impl EventTracker {
             hp_events: Vec::new(),
             position_events: Vec::new(),
             boss_position_events: Vec::new(),
+            pet_source_names: HashMap::new(),
+            pet_damage_by_owner: HashMap::new(),
         }
     }
 
@@ -567,6 +578,9 @@ impl EventTracker {
         let mut t = EventTracker::new();
         t.player_specs = other.player_specs.clone();
         t.player_names = other.player_names.clone();
+        t.pet_owners = other.pet_owners.clone();
+        t.pet_source_names = other.pet_source_names.clone();
+        t.pet_damage_by_owner = other.pet_damage_by_owner.clone();
         t
     }
 
@@ -593,6 +607,19 @@ impl EventTracker {
                 in_window && !is_death_buff_removal
             })
             .collect()
+    }
+
+    /// Resolve a pet GUID to its player owner, walking chains up to 5 hops.
+    fn resolve_owner(&self, guid: &str) -> Option<String> {
+        let mut current = guid.to_string();
+        for _ in 0..5 {
+            match self.pet_owners.get(&current) {
+                Some(owner) if owner.starts_with("Player-") => return Some(owner.clone()),
+                Some(owner) => current = owner.clone(),
+                None => return None,
+            }
+        }
+        None
     }
 
     /// For raid trash: compute the effective end time by cutting off when DPS drops below 1k for 5+ seconds.
@@ -667,8 +694,46 @@ impl EventTracker {
             let mut damage_abilities: Vec<AbilityBreakdown> = Vec::new();
             if let Some(spells) = self.damage_by_player.get(guid) {
                 let player_targets = self.damage_targets.get(guid);
+                // Collect spell_ids that come from pets (they'll be grouped separately)
+                let pet_spell_ids: std::collections::HashSet<u64> = if let Some(pets) = self.pet_damage_by_owner.get(guid) {
+                    pets.values().flat_map(|spells| spells.keys().copied()).collect()
+                } else {
+                    std::collections::HashSet::new()
+                };
+
                 for (spell_id, (spell_name, school, total, hits)) in spells {
                     total_damage += total;
+                    // Skip pet spells — they'll be added as grouped entries below
+                    if pet_spell_ids.contains(spell_id) {
+                        // Check if this spell also has player-direct damage (rare but possible)
+                        let pet_total: u64 = if let Some(pets) = self.pet_damage_by_owner.get(guid) {
+                            pets.values().filter_map(|s| s.get(spell_id)).map(|v| v.2).sum()
+                        } else { 0 };
+                        let player_only = total.saturating_sub(pet_total);
+                        if player_only > 0 {
+                            // Player also cast this spell directly — add player-only portion
+                            let player_hits = hits.saturating_sub(
+                                if let Some(pets) = self.pet_damage_by_owner.get(guid) {
+                                    pets.values().filter_map(|s| s.get(spell_id)).map(|v| v.3).sum()
+                                } else { 0 }
+                            );
+                            let mut targets: Vec<TargetBreakdown> = Vec::new();
+                            if let Some(pt) = player_targets {
+                                if let Some(spell_targets) = pt.get(spell_id) {
+                                    for (tname, tamount) in spell_targets {
+                                        targets.push(TargetBreakdown { target_name: tname.clone(), amount: *tamount });
+                                    }
+                                }
+                            }
+                            targets.sort_by(|a, b| b.amount.cmp(&a.amount));
+                            damage_abilities.push(AbilityBreakdown {
+                                spell_id: *spell_id, spell_name: spell_name.clone(), spell_school: *school,
+                                total_amount: player_only, hit_count: player_hits,
+                                wowhead_url: wowhead_url(*spell_id), targets, sub_abilities: vec![],
+                            });
+                        }
+                        continue;
+                    }
                     // Build target breakdown for this spell
                     let mut targets: Vec<TargetBreakdown> = Vec::new();
                     if let Some(pt) = player_targets {
@@ -690,6 +755,40 @@ impl EventTracker {
                         hit_count: *hits,
                         wowhead_url: wowhead_url(*spell_id),
                         targets,
+                        sub_abilities: vec![],
+                    });
+                }
+            }
+            // Build grouped pet entries
+            if let Some(pets) = self.pet_damage_by_owner.get(guid) {
+                for (pet_name, spells) in pets {
+                    let mut pet_total: u64 = 0;
+                    let mut pet_hits: u32 = 0;
+                    let mut sub_abilities: Vec<AbilityBreakdown> = Vec::new();
+                    for (spell_id, (spell_name, school, total, hits)) in spells {
+                        pet_total += total;
+                        pet_hits += hits;
+                        sub_abilities.push(AbilityBreakdown {
+                            spell_id: *spell_id,
+                            spell_name: spell_name.clone(),
+                            spell_school: *school,
+                            total_amount: *total,
+                            hit_count: *hits,
+                            wowhead_url: wowhead_url(*spell_id),
+                            targets: vec![],
+                            sub_abilities: vec![],
+                        });
+                    }
+                    sub_abilities.sort_by(|a, b| b.total_amount.cmp(&a.total_amount));
+                    damage_abilities.push(AbilityBreakdown {
+                        spell_id: 0,
+                        spell_name: pet_name.clone(),
+                        spell_school: 0,
+                        total_amount: pet_total,
+                        hit_count: pet_hits,
+                        wowhead_url: String::new(),
+                        targets: vec![],
+                        sub_abilities,
                     });
                 }
             }
@@ -721,6 +820,7 @@ impl EventTracker {
                         hit_count: *hits,
                         wowhead_url: wowhead_url(*spell_id),
                         targets,
+                        sub_abilities: vec![],
                     });
                 }
             }
@@ -744,7 +844,7 @@ impl EventTracker {
             let mut damage_taken_abilities: Vec<AbilityBreakdown> = dt_map.into_iter().map(|(spell_id, (name, school, total, hits, sources))| {
                 let mut targets: Vec<TargetBreakdown> = sources.into_iter().map(|(sn, amt)| TargetBreakdown { target_name: sn, amount: amt }).collect();
                 targets.sort_by(|a, b| b.amount.cmp(&a.amount));
-                AbilityBreakdown { spell_id, spell_name: name, spell_school: school, total_amount: total, hit_count: hits, wowhead_url: wowhead_url(spell_id), targets }
+                AbilityBreakdown { spell_id, spell_name: name, spell_school: school, total_amount: total, hit_count: hits, wowhead_url: wowhead_url(spell_id), targets, sub_abilities: vec![] }
             }).collect();
             damage_taken_abilities.sort_by(|a, b| b.total_amount.cmp(&a.total_amount));
 
@@ -1041,6 +1141,7 @@ impl EventTracker {
                                 hit_count: *hits,
                                 wowhead_url: format!("https://www.wowhead.com/spell={}", spell_id),
                                 targets: target_vec,
+                                sub_abilities: vec![],
                             }
                         }).collect())
                         .unwrap_or_default();
@@ -1060,6 +1161,7 @@ impl EventTracker {
                                 hit_count: *hits,
                                 wowhead_url: format!("https://www.wowhead.com/spell={}", spell_id),
                                 targets: target_vec,
+                                sub_abilities: vec![],
                             }
                         }).collect())
                         .unwrap_or_default();
@@ -1080,6 +1182,7 @@ impl EventTracker {
                                 hit_count: *hits,
                                 wowhead_url: format!("https://www.wowhead.com/spell={}", spell_id),
                                 targets: source_vec,
+                                sub_abilities: vec![],
                             }
                         }).collect())
                         .unwrap_or_default();
@@ -1348,16 +1451,29 @@ fn process_combat_event(
         tracker.player_names.insert(dest_guid.clone(), dest_name.clone());
     }
 
+    // Resolve pet -> owner for damage/heal attribution
+    let effective_source = if source_guid.starts_with("Player-") {
+        source_guid.clone()
+    } else {
+        tracker.resolve_owner(&source_guid).unwrap_or(source_guid.clone())
+    };
+
     match event_type {
+        "SPELL_SUMMON" => {
+            // Track pet ownership: source summons dest
+            if !source_guid.is_empty() && !dest_guid.is_empty() {
+                tracker.pet_owners.insert(dest_guid.clone(), source_guid.clone());
+            }
+        }
         "SPELL_DAMAGE" | "SPELL_PERIODIC_DAMAGE" | "RANGE_DAMAGE" | "SPELL_DAMAGE_SUPPORT" => {
             let spell_id: u64 = fields.get(9).and_then(|s| s.parse().ok()).unwrap_or(0);
             let spell_name = fields.get(10).map(|s| unquote(s)).unwrap_or_default();
             let spell_school: u32 = fields.get(11).and_then(|s| parse_hex_or_dec(s)).unwrap_or(0);
             let amount = find_damage_amount(fields, 31);
 
-            if source_guid.starts_with("Player-") && amount > 0 && !dest_guid.starts_with("Player-") {
+            if effective_source.starts_with("Player-") && amount > 0 && !dest_guid.starts_with("Player-") {
                 let entry = tracker.damage_by_player
-                    .entry(source_guid.clone())
+                    .entry(effective_source.clone())
                     .or_default()
                     .entry(spell_id)
                     .or_insert_with(|| (spell_name.clone(), spell_school, 0, 0));
@@ -1365,19 +1481,30 @@ fn process_combat_event(
                 entry.3 += 1;
                 // Track per-target
                 *tracker.damage_targets
-                    .entry(source_guid.clone()).or_default()
+                    .entry(effective_source.clone()).or_default()
                     .entry(spell_id).or_default()
                     .entry(dest_name.clone()).or_default() += amount;
                 // Track player damage event for per-pull breakdown
-                tracker.player_damage_events.push((timestamp_secs, source_guid.clone(), amount));
+                tracker.player_damage_events.push((timestamp_secs, effective_source.clone(), amount));
                 // Track per-ability damage event for per-pull ability breakdown
-                tracker.player_ability_events.push((timestamp_secs, source_guid.clone(), spell_id, spell_name.clone(), spell_school, amount, dest_name.clone()));
+                tracker.player_ability_events.push((timestamp_secs, effective_source.clone(), spell_id, spell_name.clone(), spell_school, amount, dest_name.clone()));
+                // Track pet source name for grouping
+                if effective_source != source_guid {
+                    tracker.pet_source_names.insert((effective_source.clone(), spell_id), source_name.clone());
+                    let pet_entry = tracker.pet_damage_by_owner
+                        .entry(effective_source.clone()).or_default()
+                        .entry(source_name.clone()).or_default()
+                        .entry(spell_id)
+                        .or_insert_with(|| (spell_name.clone(), spell_school, 0, 0));
+                    pet_entry.2 += amount;
+                    pet_entry.3 += 1;
+                }
                 // Bucket player damage by elapsed second
                 if tracker.encounter_start_secs > 0.0 {
                     let elapsed = (timestamp_secs - tracker.encounter_start_secs).max(0.0) as u32;
                     *tracker.time_bucketed_player_damage
                         .entry(elapsed).or_default()
-                        .entry(source_guid.clone()).or_default() += amount;
+                        .entry(effective_source.clone()).or_default() += amount;
                 }
                 // Record creature type from GUID for enemies tab
                 if !dest_guid.starts_with("Player-") && !dest_name.is_empty() {
@@ -1464,9 +1591,9 @@ fn process_combat_event(
         "SWING_DAMAGE" | "SWING_DAMAGE_LANDED" => {
             let amount = find_damage_amount(fields, 28);
 
-            if source_guid.starts_with("Player-") && amount > 0 && !dest_guid.starts_with("Player-") {
+            if effective_source.starts_with("Player-") && amount > 0 && !dest_guid.starts_with("Player-") {
                 let entry = tracker.damage_by_player
-                    .entry(source_guid.clone())
+                    .entry(effective_source.clone())
                     .or_default()
                     .entry(0)
                     .or_insert_with(|| ("Melee".to_string(), 1, 0, 0));
@@ -1474,19 +1601,30 @@ fn process_combat_event(
                 entry.3 += 1;
                 // Track per-target
                 *tracker.damage_targets
-                    .entry(source_guid.clone()).or_default()
+                    .entry(effective_source.clone()).or_default()
                     .entry(0u64).or_default()
                     .entry(dest_name.clone()).or_default() += amount;
                 // Track player damage event for per-pull breakdown
-                tracker.player_damage_events.push((timestamp_secs, source_guid.clone(), amount));
+                tracker.player_damage_events.push((timestamp_secs, effective_source.clone(), amount));
                 // Track per-ability damage event (melee = spell_id 0)
-                tracker.player_ability_events.push((timestamp_secs, source_guid.clone(), 0, "Melee".to_string(), 1, amount, dest_name.clone()));
+                tracker.player_ability_events.push((timestamp_secs, effective_source.clone(), 0, "Melee".to_string(), 1, amount, dest_name.clone()));
+                // Track pet source name for grouping (melee from pets)
+                if effective_source != source_guid {
+                    tracker.pet_source_names.insert((effective_source.clone(), 0), source_name.clone());
+                    let pet_entry = tracker.pet_damage_by_owner
+                        .entry(effective_source.clone()).or_default()
+                        .entry(source_name.clone()).or_default()
+                        .entry(0u64)
+                        .or_insert_with(|| ("Melee".to_string(), 1, 0, 0));
+                    pet_entry.2 += amount;
+                    pet_entry.3 += 1;
+                }
                 // Bucket player damage by elapsed second
                 if tracker.encounter_start_secs > 0.0 {
                     let elapsed = (timestamp_secs - tracker.encounter_start_secs).max(0.0) as u32;
                     *tracker.time_bucketed_player_damage
                         .entry(elapsed).or_default()
-                        .entry(source_guid.clone()).or_default() += amount;
+                        .entry(effective_source.clone()).or_default() += amount;
                 }
                 // Track per-phase and HP-bucketed damage to enemies
                 if !dest_guid.starts_with("Player-") && !dest_name.is_empty() {
@@ -1542,9 +1680,9 @@ fn process_combat_event(
             let effective_amount = find_heal_amount(fields, 31);
             let raw_amount = find_damage_amount(fields, 31); // raw heal amount before overhealing
 
-            if source_guid.starts_with("Player-") && effective_amount > 0 {
+            if effective_source.starts_with("Player-") && effective_amount > 0 {
                 let entry = tracker.healing_by_player
-                    .entry(source_guid.clone())
+                    .entry(effective_source.clone())
                     .or_default()
                     .entry(spell_id)
                     .or_insert_with(|| (spell_name.clone(), spell_school, 0, 0));
@@ -1552,13 +1690,13 @@ fn process_combat_event(
                 entry.3 += 1;
                 // Track per-target
                 *tracker.healing_targets
-                    .entry(source_guid.clone()).or_default()
+                    .entry(effective_source.clone()).or_default()
                     .entry(spell_id).or_default()
                     .entry(dest_name.clone()).or_default() += effective_amount;
                 // Track healing event for per-pull breakdown
-                tracker.player_healing_events.push((timestamp_secs, source_guid.clone(), effective_amount));
+                tracker.player_healing_events.push((timestamp_secs, effective_source.clone(), effective_amount));
                 // Track per-ability heal event for per-pull ability breakdown
-                tracker.player_heal_ability_events.push((timestamp_secs, source_guid.clone(), spell_id, spell_name.clone(), spell_school, effective_amount, dest_name.clone()));
+                tracker.player_heal_ability_events.push((timestamp_secs, effective_source.clone(), spell_id, spell_name.clone(), spell_school, effective_amount, dest_name.clone()));
             }
 
             // Track healing received on the target for death recap (use raw amount so heals always show)
