@@ -54,7 +54,7 @@ Write-Host "  Updated frontend\src\components\Footer.tsx"
 
 # --- 3. Build release binary ---
 Write-Host "`nBuilding release binary..."
-taskkill /f /im wowlogger.exe 2>$null
+try { taskkill /f /im wowlogger.exe 2>$null | Out-Null } catch {}
 Start-Sleep -Seconds 1
 
 # Build frontend first to ensure version bump in Footer.tsx is included
@@ -121,7 +121,8 @@ try {
         $releaseTitle = $lines[0].Trim()
         $releaseNotes = ($lines[2..($lines.Length - 1)] -join "`n").Trim()
     }
-} catch {}
+}
+catch {}
 
 # Fallback: generate notes from commit log
 if (-not $releaseNotes) {
