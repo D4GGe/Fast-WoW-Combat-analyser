@@ -107,6 +107,7 @@ export default function EncounterList() {
                             </div>
                         </div>
                         <div className="card-meta">
+                            <span>🕐 {new Date(enc.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                             <span>⏱ {formatDuration(enc.duration_secs)}</span>
                             <span>⚔️ {enc.difficulty_name}</span>
                             <span>👥 {enc.group_size} players</span>
@@ -138,6 +139,7 @@ export default function EncounterList() {
                                 </div>
                             </div>
                             <div className="card-meta">
+                                <span>🕐 {new Date(enc.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                 <span>⏱ {formatDuration(enc.duration_secs)}</span>
                                 <span>⚔️ {enc.difficulty_name}</span>
                                 <span>👥 {enc.group_size} players</span>
@@ -236,6 +238,7 @@ export default function EncounterList() {
                                             </div>
                                         </div>
                                         <div className="card-meta">
+                                            <span>🕐 {new Date(pulls[0].start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                             <span>⚔️ {diff}</span>
                                             <span>👥 {groupSize} players</span>
                                             <span>{pulls.length} {pulls.length === 1 ? 'pull' : 'pulls'}</span>

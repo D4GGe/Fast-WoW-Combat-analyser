@@ -2124,6 +2124,54 @@ fn process_combat_event(
                 });
             }
         }
+        "SPELL_ABSORBED" => {
+            // SPELL_ABSORBED has two formats:
+            // Spell damage absorbed: ...,spellID,spellName,spellSchool,absorbCasterGUID,absorbCasterName,...,absorbSpellID,absorbSpellName,absorbSchool,absorbAmount
+            // Swing damage absorbed: ...,absorbCasterGUID,absorbCasterName,...,absorbSpellID,absorbSpellName,absorbSchool,absorbAmount
+            // Detect format by checking if field 9 looks like a spell ID (number) or a GUID
+            let field9 = fields.get(9).unwrap_or(&"");
+            let is_spell_absorbed = field9.parse::<u64>().is_ok();
+            let offset: usize = if is_spell_absorbed { 3 } else { 0 }; // spell absorbed has 3 extra fields (spellID, spellName, spellSchool)
+
+            let absorb_caster_guid = fields.get(9 + offset).map(|s| s.to_string()).unwrap_or_default();
+            let absorb_caster_name = fields.get(10 + offset).map(|s| unquote(s)).unwrap_or_default();
+            let absorb_caster_name = absorb_caster_name.split('-').next().unwrap_or(&absorb_caster_name).to_string();
+            let absorb_spell_id: u64 = fields.get(13 + offset).and_then(|s| s.parse().ok()).unwrap_or(0);
+            let absorb_spell_name = fields.get(14 + offset).map(|s| unquote(s)).unwrap_or_default();
+            let absorb_spell_school: u32 = fields.get(15 + offset).and_then(|s| parse_hex_or_dec(s)).unwrap_or(0);
+            let absorb_amount: u64 = fields.get(16 + offset).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+            // Resolve absorb caster to player (could be a pet)
+            let absorb_source = if absorb_caster_guid.starts_with("Player-") {
+                absorb_caster_guid.clone()
+            } else {
+                tracker.resolve_owner(&absorb_caster_guid).unwrap_or(absorb_caster_guid.clone())
+            };
+
+            if absorb_source.starts_with("Player-") && absorb_amount > 0 && absorb_spell_id > 0 {
+                // Credit as healing
+                let entry = tracker.healing_by_player
+                    .entry(absorb_source.clone())
+                    .or_default()
+                    .entry(absorb_spell_id)
+                    .or_insert_with(|| (absorb_spell_name.clone(), absorb_spell_school, 0, 0));
+                entry.2 += absorb_amount;
+                entry.3 += 1;
+                // Track per-target
+                *tracker.healing_targets
+                    .entry(absorb_source.clone()).or_default()
+                    .entry(absorb_spell_id).or_default()
+                    .entry(dest_name.clone()).or_default() += absorb_amount;
+                // Track healing event for per-pull breakdown
+                tracker.player_healing_events.push((timestamp_secs, absorb_source.clone(), absorb_amount));
+                // Track per-ability heal event for per-pull ability breakdown
+                tracker.player_heal_ability_events.push((timestamp_secs, absorb_source.clone(), absorb_spell_id, absorb_spell_name.clone(), absorb_spell_school, absorb_amount, dest_name.clone()));
+                // Register absorb caster name
+                if absorb_caster_guid.starts_with("Player-") {
+                    tracker.player_names.insert(absorb_caster_guid, absorb_caster_name);
+                }
+            }
+        }
         "SPELL_AURA_APPLIED" | "SPELL_AURA_REFRESH" => {
             if dest_guid.starts_with("Player-") {
                 let spell_id: u64 = fields.get(9).and_then(|s| s.parse().ok()).unwrap_or(0);

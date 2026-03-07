@@ -835,6 +835,34 @@ function renderDamageTakenTab(enc: EncounterSummary, getTooltip: (id: number, na
 function renderDeathsTab(enc: EncounterSummary, getTooltip: (id: number, name?: string) => any): string {
     const deaths = enc.deaths || []
     if (deaths.length === 0) return '<div class="empty-state"><div class="icon">🎉</div><div class="title">No deaths!</div></div>'
+
+    // Pre-compute debuff timelines per player guid (enemy-sourced only)
+    const playerNames = new Set(enc.players.map(p => p.name))
+    const debuffsByGuid: Record<string, { spell_id: number; spell_name: string; source_name: string; wowhead_url: string; timeline: { time: number; event_type: string }[] }[]> = {}
+    const uptimes = enc.buff_uptimes || {}
+    for (const [guid, buffs] of Object.entries(uptimes)) {
+        debuffsByGuid[guid] = (buffs as any[])
+            .filter((b: any) => b.aura_type === 'DEBUFF' && !playerNames.has(b.source_name))
+            .map((b: any) => ({ spell_id: b.spell_id, spell_name: b.spell_name, source_name: b.source_name, wowhead_url: b.wowhead_url, timeline: b.timeline || [] }))
+    }
+
+    // Helper: get active debuffs at a given time for a player
+    function getActiveDebuffsAt(guid: string, time: number): { spell_id: number; spell_name: string; wowhead_url: string }[] {
+        const debuffs = debuffsByGuid[guid]
+        if (!debuffs) return []
+        const active: { spell_id: number; spell_name: string; wowhead_url: string }[] = []
+        for (const d of debuffs) {
+            let isActive = false
+            for (const ev of d.timeline) {
+                if (ev.time > time) break
+                if (ev.event_type === 'apply' || ev.event_type === 'stack') isActive = true
+                else if (ev.event_type === 'remove') isActive = false
+            }
+            if (isActive) active.push({ spell_id: d.spell_id, spell_name: d.spell_name, wowhead_url: d.wowhead_url })
+        }
+        return active
+    }
+
     return deaths.map((d, i) => {
         const fmtTime = (s: number) => { const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return m + ':' + (sec < 10 ? '0' : '') + sec }
         const hasRecap = d.recap && d.recap.length > 0
@@ -881,12 +909,22 @@ function renderDeathsTab(enc: EncounterSummary, getTooltip: (id: number, name?: 
             const amtPrefix = evType === 'healing' ? '+' : evType === 'damage' || evType === 'death' ? '-' : ''
             const amtColor = evType === 'healing' ? 'var(--accent-green)' : evType === 'damage' || evType === 'death' ? 'var(--accent-red)' : 'var(--text-muted)'
             const amtStr = r.amount > 0 ? `${amtPrefix}${formatNumber(r.amount)}` : '—'
+            // Active debuffs at this moment
+            const activeDebuffs = getActiveDebuffsAt(d.player_guid, r.time_into_fight_secs)
+            const debuffIconsHtml = activeDebuffs.length > 0
+                ? `<div style="display:flex;gap:2px;flex-wrap:wrap;align-items:center">${activeDebuffs.map(db => {
+                    const tip = getTooltip(db.spell_id, db.spell_name)
+                    const iconUrl = tip?.icon_url || `https://wow.zamimg.com/images/wow/icons/small/${db.spell_id}.jpg`
+                    return `<div class="spell-tooltip-wrap" data-spell-id="${db.spell_id}" data-spell-name="${db.spell_name}" style="display:inline-block;flex-shrink:0"><a href="${db.wowhead_url}" target="_blank" style="display:inline-block;width:18px;height:18px;border-radius:3px;border:1px solid rgba(239,68,68,0.5);overflow:hidden" onclick="event.stopPropagation()"><img src="${iconUrl}" width="18" height="18" style="display:block" onerror="this.style.display='none'"></a></div>`
+                }).join('')}</div>`
+                : ''
             return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">
               <td style="padding:5px 8px;color:var(--text-muted);width:40px;white-space:nowrap">${fmtTime(r.time_into_fight_secs)}</td>
               <td style="padding:5px 6px;width:50px"><span style="background:${badgeBg};color:${badgeColor};padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:0.3px">${badgeLabel}</span></td>
               <td style="padding:5px 6px;width:60px;text-align:right;font-weight:600;color:${amtColor};font-size:12px">${amtStr}</td>
               <td style="padding:5px 8px">${spellHtml(r.spell_id, r.spell_name, r.wowhead_url, getTooltip, { color: 'var(--accent-blue)', iconSize: 16 })}</td>
               <td style="padding:5px 8px;color:var(--text-muted);font-size:11px">${r.source_name}</td>
+              <td style="padding:5px 4px;min-width:80px">${debuffIconsHtml}</td>
               <td style="padding:5px 8px;width:120px">
                 <div style="display:flex;align-items:center;gap:4px">
                   <div style="flex:1;height:14px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden;position:relative">
@@ -902,6 +940,7 @@ function renderDeathsTab(enc: EncounterSummary, getTooltip: (id: number, name?: 
     </div>`
     }).join('')
 }
+
 
 function renderAbilitiesTab(enc: EncounterSummary, getTooltip: (id: number, name?: string) => any): string {
     if (enc.players.length === 0) return '<div class="empty-state"><div class="title">No ability data</div></div>'
