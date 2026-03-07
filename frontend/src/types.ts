@@ -141,6 +141,7 @@ export interface BuffUptime {
     spell_id: number;
     spell_name: string;
     source_name: string;
+    aura_type: string;  // "BUFF" or "DEBUFF"
     uptime_secs: number;
     uptime_pct: number;
     avg_stacks: number;

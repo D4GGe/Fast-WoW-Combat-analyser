@@ -47,9 +47,10 @@ export default function EncounterList() {
     const wipes = bossEncs.filter(e => !e.success).length
     const zones = [...new Set(summary.zone_changes.map(z => z.zone_name))]
 
-    // Split M+ and raid encounters
+    // Split M+, dungeon, and raid encounters
     const mplusEncs = encounters.filter(e => e.encounter_type === 'mythic_plus')
-    const raidEncs = encounters.filter(e => e.encounter_type !== 'mythic_plus')
+    const dungeonEncs = encounters.filter(e => e.encounter_type === 'dungeon')
+    const raidEncs = encounters.filter(e => e.encounter_type !== 'mythic_plus' && e.encounter_type !== 'dungeon')
 
     // Zone resolution
     const zc = (summary.zone_changes || []).slice().sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
@@ -122,6 +123,38 @@ export default function EncounterList() {
                         )}
                     </div>
                 ))}
+
+                {/* Dungeon runs */}
+                {dungeonEncs.map((enc, ri) => {
+                    const kills = enc.boss_encounters.filter(b => b.success).length
+                    const wipeCount = enc.boss_encounters.filter(b => !b.success).length
+                    return (
+                        <div key={`drun-${ri}`} className="card encounter-card animate-in" style={{ animationDelay: `${(mplusEncs.length + ri) * 30}ms` }} onClick={() => goToEncounter(enc)}>
+                            <div className="card-header">
+                                <div className="card-title">🏰 {enc.name || 'Dungeon'}</div>
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    {kills > 0 && <span className="encounter-result kill">✓ {kills} {kills === 1 ? 'Kill' : 'Kills'}</span>}
+                                    {wipeCount > 0 && <span className="encounter-result wipe">✗ {wipeCount} {wipeCount === 1 ? 'Wipe' : 'Wipes'}</span>}
+                                </div>
+                            </div>
+                            <div className="card-meta">
+                                <span>⏱ {formatDuration(enc.duration_secs)}</span>
+                                <span>⚔️ {enc.difficulty_name}</span>
+                                <span>👥 {enc.group_size} players</span>
+                                {enc.deaths.length > 0 && <span>💀 {enc.deaths.length} deaths</span>}
+                            </div>
+                            {enc.boss_encounters.length > 0 && (
+                                <div className="boss-list">
+                                    {enc.boss_encounters.map((b, bi) => (
+                                        <span key={bi} className={`boss-chip ${b.success ? 'killed' : 'wiped'}`}>
+                                            {b.success ? '✓' : '✗'} {b.name}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )
+                })}
 
                 {/* Raid sessions */}
                 {sessions.map((session, si) => {

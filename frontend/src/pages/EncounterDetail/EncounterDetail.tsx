@@ -6,7 +6,7 @@ import { formatDuration, formatNumber, classColor, roleIcon, getSchoolColor } fr
 import { spellHtml } from '../../components/SpellTooltip'
 import { useSpellTooltips } from '../../hooks/useSpellTooltips'
 
-type TabId = 'damage' | 'healing' | 'taken' | 'deaths' | 'abilities' | 'enemies' | 'buffs' | 'replay'
+type TabId = 'damage' | 'healing' | 'taken' | 'deaths' | 'abilities' | 'enemies' | 'buffs' | 'debuffs' | 'replay'
 
 const TABS: { id: TabId; icon: string; label: string; always?: boolean }[] = [
     { id: 'damage', icon: '⚔️', label: 'Damage Done', always: true },
@@ -16,6 +16,7 @@ const TABS: { id: TabId; icon: string; label: string; always?: boolean }[] = [
     { id: 'abilities', icon: '📊', label: 'Abilities', always: true },
     { id: 'enemies', icon: '👹', label: 'Enemies', always: true },
     { id: 'buffs', icon: '🔮', label: 'Buff Uptime', always: true },
+    { id: 'debuffs', icon: '☠️', label: 'Debuffs', always: true },
     { id: 'replay', icon: '🎬', label: 'Replay' },
 ]
 
@@ -223,8 +224,18 @@ export default function EncounterDetail() {
             const sel = document.getElementById('buff-player-select') as HTMLSelectElement | null
             const selGuid = sel?.value || d.players[0]?.guid
             if (selGuid) {
-                const buffs = ((d.buff_uptimes || {})[selGuid] || []).sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
+                const buffs = ((d.buff_uptimes || {})[selGuid] || []).filter((b: any) => b.aura_type !== 'DEBUFF').sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
                 setTimeout(() => drawBuffTimelines(buffs, dur), 0)
+            }
+        }
+        if (activeTab === 'debuffs') {
+            const d = filteredEnc || enc
+            const dur = d.duration_secs || 1
+            const sel = document.getElementById('debuff-player-select') as HTMLSelectElement | null
+            const selGuid = sel?.value || d.players[0]?.guid
+            if (selGuid) {
+                const debuffs = ((d.buff_uptimes || {})[selGuid] || []).filter((b: any) => b.aura_type === 'DEBUFF').sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
+                setTimeout(() => drawDebuffTimelines(debuffs, dur), 0)
             }
         }
         if (activeTab === 'replay' && enc.replay_timeline && enc.replay_timeline.length > 0) {
@@ -391,7 +402,7 @@ export default function EncounterDetail() {
                 const sel = document.getElementById('buff-player-select') as HTMLSelectElement | null
                 const guid = sel?.value || dataForTab.players[0]?.guid
                 const playerName = dataForTab.players.find(p => p.guid === guid)?.name || ''
-                let buffs = ((dataForTab.buff_uptimes || {})[guid] || []).sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
+                let buffs = ((dataForTab.buff_uptimes || {})[guid] || []).filter((b: any) => b.aura_type !== 'DEBUFF').sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
                 if (!isActive) {
                     buffs = buffs.filter((b: any) => b.source_name === playerName)
                 }
@@ -431,7 +442,7 @@ export default function EncounterDetail() {
                 if (selectedPlayer) {
                     target.style.color = classColor(selectedPlayer.class_name)
                 }
-                let buffs = ((dataForTab.buff_uptimes || {})[guid] || []).sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
+                let buffs = ((dataForTab.buff_uptimes || {})[guid] || []).filter((b: any) => b.aura_type !== 'DEBUFF').sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
                 const selfBtn = document.getElementById('buff-self-only')
                 if (selfBtn?.getAttribute('data-active') === 'true' && selectedPlayer) {
                     buffs = buffs.filter((b: any) => b.source_name === selectedPlayer.name)
@@ -441,6 +452,21 @@ export default function EncounterDetail() {
                 if (listEl) {
                     listEl.innerHTML = renderBuffList(buffs, dur, getTooltip)
                     setTimeout(() => drawBuffTimelines(buffs, dur), 0)
+                }
+            }
+            if (target.id === 'debuff-player-select' && enc) {
+                const dataForTab = filteredEnc || enc
+                const guid = target.value
+                const selectedPlayer = dataForTab.players.find(p => p.guid === guid)
+                if (selectedPlayer) {
+                    target.style.color = classColor(selectedPlayer.class_name)
+                }
+                const debuffs = ((dataForTab.buff_uptimes || {})[guid] || []).filter((b: any) => b.aura_type === 'DEBUFF').sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
+                const dur = dataForTab.duration_secs || 1
+                const listEl = document.getElementById('debuff-list')
+                if (listEl) {
+                    listEl.innerHTML = renderDebuffList(debuffs, dur, getTooltip)
+                    setTimeout(() => drawDebuffTimelines(debuffs, dur), 0)
                 }
             }
         }
@@ -462,7 +488,7 @@ export default function EncounterDetail() {
     // Stats
     const totalDmg = enc.players.reduce((s, p) => s + p.damage_done, 0)
     const totalHeal = enc.players.reduce((s, p) => s + p.healing_done, 0)
-    const typeIcon = enc.encounter_type === 'mythic_plus' ? '🗝️' : enc.encounter_type === 'trash' ? '🗑️' : '⚔️'
+    const typeIcon = enc.encounter_type === 'mythic_plus' ? '🗝️' : enc.encounter_type === 'dungeon' ? '🏰' : enc.encounter_type === 'trash' ? '🗑️' : '⚔️'
     const hasReplay = (enc.replay_timeline && enc.replay_timeline.length > 0) || replayData !== null || enc.encounter_type === 'boss'
 
     return (
@@ -684,6 +710,7 @@ function renderTab(
         case 'abilities': return renderAbilitiesTab(enc, getTooltip)
         case 'enemies': return renderEnemiesTab(enc, getTooltip)
         case 'buffs': return renderBuffUptimeTab(enc, getTooltip)
+        case 'debuffs': return renderDebuffTab(enc, getTooltip)
         case 'replay': return renderReplayTab(enc)
         default: return ''
     }
@@ -1053,7 +1080,7 @@ function renderBuffUptimeTab(enc: EncounterSummary, getTooltip: (id: number, nam
     const firstColor = classColor(players[0]?.class_name || '')
     const uptimes = enc.buff_uptimes || {}
     const dur = enc.duration_secs || 1
-    const firstBuffs = (uptimes[firstGuid] || []).sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
+    const firstBuffs = (uptimes[firstGuid] || []).filter((b: any) => b.aura_type !== 'DEBUFF').sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
 
     return `<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
     <span style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Select Player</span>
@@ -1079,6 +1106,42 @@ function renderBuffList(buffs: any[], dur: number, getTooltip: (id: number, name
         <td class="num" style="color:${b.uptime_pct >= 80 ? 'var(--accent-green)' : b.uptime_pct >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)'};font-weight:700">${b.uptime_pct.toFixed(1)}%</td>
         <td style="width:120px"><div style="position:relative;height:20px;background:rgba(255,255,255,0.04);border-radius:4px;overflow:hidden"><div style="height:100%;width:${barPct}%;background:linear-gradient(90deg, rgba(124,58,237,0.7), rgba(99,102,241,0.7));border-radius:4px"></div><span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;color:var(--text-primary);font-weight:600;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,0.5)">${fmtDur(uptimeDur)}</span></div></td>
         <td style="min-width:200px"><canvas class="buff-canvas" data-buff-idx="${i}" width="400" height="24" style="width:100%;height:24px;border-radius:4px;background:rgba(255,255,255,0.03)"></canvas></td>
+      </tr>`
+    }).join('')}</tbody></table>`
+}
+
+function renderDebuffTab(enc: EncounterSummary, getTooltip: (id: number, name?: string) => any): string {
+    const players = enc.players || []
+    if (players.length === 0) return '<div class="empty-state"><div class="title">No debuff data</div></div>'
+    const firstGuid = players[0]?.guid
+    const firstColor = classColor(players[0]?.class_name || '')
+    const uptimes = enc.buff_uptimes || {}
+    const dur = enc.duration_secs || 1
+    const firstDebuffs = (uptimes[firstGuid] || []).filter((b: any) => b.aura_type === 'DEBUFF').sort((a: any, b: any) => b.uptime_pct - a.uptime_pct)
+
+    return `<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+    <span style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Select Player</span>
+    <select id="debuff-player-select" style="padding:8px 14px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;color:${firstColor};font-size:13px;min-width:220px">
+      ${players.map(p => `<option value="${p.guid}" ${p.guid === firstGuid ? 'selected' : ''} style="color:${classColor(p.class_name)}">${p.name} \u2014 ${p.spec_name || ''} ${p.class_name}</option>`).join('')}
+    </select>
+    <input id="debuff-search" type="text" placeholder="\ud83d\udd0d Search debuffs..." style="padding:8px 14px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:13px;width:200px;margin-left:auto">
+  </div>
+  <div id="debuff-list">${renderDebuffList(firstDebuffs, dur, getTooltip)}</div>`
+}
+
+function renderDebuffList(debuffs: any[], dur: number, getTooltip: (id: number, name?: string) => any): string {
+    if (debuffs.length === 0) return '<div style="color:var(--text-muted);padding:16px;font-size:13px">No debuff data for this player</div>'
+    const fmtDur = (s: number) => { const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return m + ':' + (sec < 10 ? '0' : '') + sec }
+    return `<table class="data-table" style="font-size:13px"><thead><tr><th>Debuff</th><th>Source</th><th class="num">Uptime</th><th style="width:120px"></th><th>Timeline</th></tr></thead>
+      <tbody>${debuffs.map((b: any, i: number) => {
+        const uptimeDur = b.uptime_secs || Math.round(dur * b.uptime_pct / 100)
+        const barPct = Math.min(b.uptime_pct, 100).toFixed(1)
+        return `<tr class="animate-in" style="animation-delay:${i * 15}ms">
+        <td class="ability-cell">${spellHtml(b.spell_id, b.spell_name, b.wowhead_url, getTooltip, { iconSize: 18, color: 'var(--accent-red)' })}</td>
+        <td style="font-size:12px;color:var(--text-muted)">${b.source_name || ''}</td>
+        <td class="num" style="color:${b.uptime_pct >= 80 ? 'var(--accent-red)' : b.uptime_pct >= 50 ? 'var(--accent-orange)' : 'var(--accent-yellow)'};font-weight:700">${b.uptime_pct.toFixed(1)}%</td>
+        <td style="width:120px"><div style="position:relative;height:20px;background:rgba(255,255,255,0.04);border-radius:4px;overflow:hidden"><div style="height:100%;width:${barPct}%;background:linear-gradient(90deg, rgba(239,68,68,0.7), rgba(220,38,38,0.7));border-radius:4px"></div><span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;color:var(--text-primary);font-weight:600;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,0.5)">${fmtDur(uptimeDur)}</span></div></td>
+        <td style="min-width:200px"><canvas class="debuff-canvas" data-debuff-idx="${i}" width="400" height="24" style="width:100%;height:24px;border-radius:4px;background:rgba(255,255,255,0.03)"></canvas></td>
       </tr>`
     }).join('')}</tbody></table>`
 }
@@ -1217,6 +1280,59 @@ function drawBuffTimelines(buffs: any[], duration: number) {
             drawUptimeBar(ctx, lastTime / duration * w, w, currentStacks, maxStacks, h)
         }
     })
+}
+
+function drawDebuffTimelines(debuffs: any[], duration: number) {
+    const canvases = document.querySelectorAll('.debuff-canvas')
+    canvases.forEach((canvas, i) => {
+        if (i >= debuffs.length) return
+        const c = canvas as HTMLCanvasElement
+        const ctx = c.getContext('2d')
+        if (!ctx) return
+        const w = c.width, h = c.height
+        ctx.clearRect(0, 0, w, h)
+        const b = debuffs[i]
+        if (!b?.timeline?.length) return
+
+        let currentStacks = 0
+        const maxStacks = b.max_stacks || 1
+        const events = b.timeline.sort((a: any, b: any) => a.time - b.time)
+        let lastTime = 0
+
+        for (const ev of events) {
+            if (ev.event_type === 'apply' || ev.event_type === 'stack') {
+                if (currentStacks > 0 && ev.time > lastTime) {
+                    drawDebuffUptimeBar(ctx, lastTime / duration * w, ev.time / duration * w, currentStacks, maxStacks, h)
+                }
+                currentStacks = ev.stacks || (currentStacks + 1)
+                lastTime = ev.time
+            } else if (ev.event_type === 'remove') {
+                if (currentStacks > 0 && ev.time > lastTime) {
+                    drawDebuffUptimeBar(ctx, lastTime / duration * w, ev.time / duration * w, currentStacks, maxStacks, h)
+                }
+                currentStacks = 0
+                lastTime = ev.time
+            }
+        }
+        if (currentStacks > 0 && lastTime < duration) {
+            drawDebuffUptimeBar(ctx, lastTime / duration * w, w, currentStacks, maxStacks, h)
+        }
+    })
+}
+
+function drawDebuffUptimeBar(ctx: CanvasRenderingContext2D, x1: number, x2: number, stacks: number, maxStacks: number, h: number) {
+    const alpha = maxStacks > 1 ? 0.3 + (stacks / maxStacks) * 0.7 : 0.8
+    ctx.fillStyle = `rgba(239, 68, 68, ${alpha})`
+    ctx.fillRect(Math.round(x1), 0, Math.round(x2 - x1), h)
+    if (maxStacks > 1 && stacks > 1) {
+        ctx.fillStyle = `rgba(255,255,255,${alpha})`
+        ctx.font = 'bold 10px sans-serif'
+        ctx.textAlign = 'center'
+        const midX = (x1 + x2) / 2
+        if (x2 - x1 > 12) {
+            ctx.fillText(String(stacks), midX, h / 2 + 4)
+        }
+    }
 }
 
 function drawUptimeBar(ctx: CanvasRenderingContext2D, x1: number, x2: number, stacks: number, maxStacks: number, h: number) {
@@ -1481,7 +1597,7 @@ function initReplayControls(enc: EncounterSummary) {
 // ========== Encounter pills builder ==========
 
 function buildEncounterPills(summary: CombatLogSummary, currentEnc: EncounterSummary, currentIndex: number): string {
-    if (currentEnc.encounter_type === 'mythic_plus') return ''
+    if (currentEnc.encounter_type === 'mythic_plus' || currentEnc.encounter_type === 'dungeon') return ''
     const allRaid = summary.encounters.filter(e => e.encounter_type !== 'mythic_plus')
     if (allRaid.length <= 1) return ''
 

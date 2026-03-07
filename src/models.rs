@@ -25,7 +25,7 @@ pub struct EncounterSummary {
     pub end_time: String,
     pub key_level: Option<u32>,
     pub affixes: Vec<u32>,
-    pub encounter_type: String,  // "boss", "mythic_plus"
+    pub encounter_type: String,  // "boss", "mythic_plus", "dungeon"
     pub boss_encounters: Vec<BossEncounter>,  // bosses within a M+ key
     pub players: Vec<PlayerSummary>,
     pub deaths: Vec<DeathEvent>,
@@ -184,6 +184,7 @@ pub struct BuffUptime {
     pub spell_id: u64,
     pub spell_name: String,
     pub source_name: String,
+    pub aura_type: String,  // "BUFF" or "DEBUFF"
     pub uptime_secs: f64,
     pub uptime_pct: f64,
     pub avg_stacks: f64,

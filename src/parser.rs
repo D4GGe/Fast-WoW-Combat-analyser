@@ -57,7 +57,7 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
     let mut standalone_group_size: u32 = 0;
     let mut standalone_tracker = EventTracker::new();
 
-    // Raid trash tracking (between boss encounters)
+    // Trash tracking (between boss encounters)
     let mut trash_tracker = EventTracker::new();
     let mut trash_start_secs: f64 = 0.0;
     let mut trash_start_str = String::new();
@@ -66,6 +66,10 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
     let mut trash_group_size: u32 = 0;
     let mut trash_index: u32 = 0;
     let mut timestamp_secs_last: Option<f64> = None;
+
+    // Dungeon zone tracking — detect entry/exit via ZONE_CHANGE
+    let mut in_dungeon_zone = false;
+    let mut dungeon_zone_difficulty: u32 = 0;
 
     for line_result in reader.lines() {
         let line = match line_result {
@@ -118,12 +122,70 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
             }
             "ZONE_CHANGE" => {
                 if fields.len() >= 4 {
+                    let zc_difficulty: u32 = fields[3].parse().unwrap_or(0);
+                    let zc_zone_name = unquote(fields[2]);
                     zone_changes.push(ZoneChange {
                         timestamp: timestamp_str.to_string(),
                         zone_id: fields[1].parse().unwrap_or(0),
-                        zone_name: unquote(fields[2]),
-                        difficulty_id: fields[3].parse().unwrap_or(0),
+                        zone_name: zc_zone_name.clone(),
+                        difficulty_id: zc_difficulty,
                     });
+
+                    // Detect dungeon zone entry/exit (difficulty 1=Normal, 2=Heroic, 23=Mythic, 24=Timewalking)
+                    let is_dungeon_diff = matches!(zc_difficulty, 1 | 2 | 23 | 24);
+                    if is_dungeon_diff && !in_key {
+                        if !in_dungeon_zone {
+                            // Entering a dungeon zone — start tracking trash
+                            in_dungeon_zone = true;
+                            dungeon_zone_difficulty = zc_difficulty;
+                            trash_tracker = EventTracker::new_with_context(&tracker);
+                            trash_start_secs = timestamp_secs;
+                            trash_start_str = timestamp_str.to_string();
+                            trash_has_combat = false;
+                            trash_difficulty = zc_difficulty;
+                            trash_group_size = 5; // dungeons are 5-man
+                        }
+                    } else if in_dungeon_zone {
+                        // Leaving a dungeon zone — flush any trailing trash
+                        if trash_has_combat {
+                            let trash_duration = timestamp_secs - trash_start_secs;
+                            if trash_duration > 1.0 {
+                                let players = trash_tracker.build_player_summaries(trash_duration);
+                                encounters.push(EncounterSummary {
+                                    index: encounters.len(),
+                                    encounter_id: 0,
+                                    name: "Trash".to_string(),
+                                    difficulty_id: trash_difficulty,
+                                    difficulty_name: difficulty_name(trash_difficulty),
+                                    group_size: trash_group_size,
+                                    success: true,
+                                    duration_secs: trash_duration,
+                                    start_time: trash_start_str.clone(),
+                                    end_time: timestamp_str.to_string(),
+                                    key_level: None,
+                                    affixes: Vec::new(),
+                                    encounter_type: "trash".to_string(),
+                                    boss_encounters: Vec::new(),
+                                    players,
+                                    deaths: trash_tracker.death_events.clone(),
+                                    segments: Vec::new(),
+                                    buff_uptimes: trash_tracker.build_buff_uptimes(trash_duration),
+                                    enemy_breakdowns: trash_tracker.build_enemy_breakdowns(&[]),
+                                    boss_hp_pct: None,
+                                    boss_max_hp: None,
+                                    phases: Vec::new(),
+                                    time_bucketed_player_damage: HashMap::new(),
+                                    boss_hp_timeline: Vec::new(),
+                                    replay_timeline: Vec::new(),
+                                    boss_positions: Vec::new(),
+                                    raw_ability_events: Vec::new(),
+                                });
+                            }
+                        }
+                        in_dungeon_zone = false;
+                        trash_tracker = EventTracker::new();
+                        trash_has_combat = false;
+                    }
                 }
             }
             "CHALLENGE_MODE_START" => {
@@ -259,9 +321,41 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
                     boss_name = enc_name;
                     boss_id = enc_id;
                 } else {
-                    // Flush any accumulated trash before this boss (disabled for now)
-                    if trash_has_combat {
-                        // Trash encounters disabled for raids
+                    // Flush accumulated trash as an encounter for dungeons
+                    if trash_has_combat && in_dungeon_zone {
+                        let trash_duration = timestamp_secs - trash_start_secs;
+                        if trash_duration > 1.0 {
+                            let players = trash_tracker.build_player_summaries(trash_duration);
+                            encounters.push(EncounterSummary {
+                                index: encounters.len(),
+                                encounter_id: 0,
+                                name: format!("Trash"),
+                                difficulty_id: trash_difficulty,
+                                difficulty_name: difficulty_name(trash_difficulty),
+                                group_size: trash_group_size,
+                                success: true,
+                                duration_secs: trash_duration,
+                                start_time: trash_start_str.clone(),
+                                end_time: timestamp_str.to_string(),
+                                key_level: None,
+                                affixes: Vec::new(),
+                                encounter_type: "trash".to_string(),
+                                boss_encounters: Vec::new(),
+                                players,
+                                deaths: trash_tracker.death_events.clone(),
+                                segments: Vec::new(),
+                                buff_uptimes: trash_tracker.build_buff_uptimes(trash_duration),
+                                enemy_breakdowns: trash_tracker.build_enemy_breakdowns(&[]),
+                                boss_hp_pct: None,
+                                boss_max_hp: None,
+                                phases: Vec::new(),
+                                time_bucketed_player_damage: HashMap::new(),
+                                boss_hp_timeline: Vec::new(),
+                                replay_timeline: Vec::new(),
+                                boss_positions: Vec::new(),
+                                raw_ability_events: Vec::new(),
+                            });
+                        }
                     }
                     trash_tracker = EventTracker::new_with_context(&tracker);
                     trash_has_combat = false;
@@ -436,6 +530,9 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
     // Flush any trailing trash at the end of the log (disabled for now)
     // Trash encounters disabled for raids
 
+    // Post-processing: aggregate consecutive non-M+ dungeon bosses into compound "dungeon" encounters
+    encounters = aggregate_dungeon_runs(encounters, &zone_changes);
+
     Ok(CombatLogSummary {
         filename,
         log_version,
@@ -443,6 +540,297 @@ pub fn parse_combat_log(path: &Path) -> Result<CombatLogSummary, String> {
         encounters,
         zone_changes,
     })
+}
+
+/// Aggregate consecutive non-M+ dungeon encounters (group_size <= 5) in the same zone/difficulty
+/// into a single compound encounter with segments, matching the M+ data shape.
+/// Now also includes interleaved "trash" encounters with real player data.
+fn aggregate_dungeon_runs(encounters: Vec<EncounterSummary>, zone_changes: &[ZoneChange]) -> Vec<EncounterSummary> {
+    let zc: Vec<&ZoneChange> = {
+        let mut sorted: Vec<&ZoneChange> = zone_changes.iter().collect();
+        sorted.sort_by_key(|z| z.timestamp.clone());
+        sorted
+    };
+
+    fn zone_for(enc: &EncounterSummary, zc: &[&ZoneChange]) -> String {
+        let mut zone = String::new();
+        for z in zc {
+            if z.timestamp <= enc.start_time {
+                zone = z.zone_name.clone();
+            } else {
+                break;
+            }
+        }
+        zone
+    }
+
+    // Identify runs: consecutive "boss" + "trash" encounters with group_size <= 5,
+    // same zone, same difficulty, within 15 min gap.
+    // A run must have at least 2 boss encounters.
+    let mut runs: Vec<Vec<usize>> = Vec::new(); // indices into encounters (boss + trash)
+    let mut current_run: Vec<usize> = Vec::new();
+    let mut boss_count_in_run = 0;
+    let mut last_boss_idx: Option<usize> = None;
+
+    for (i, enc) in encounters.iter().enumerate() {
+        let is_dungeon = enc.group_size <= 5 && (enc.encounter_type == "boss" || enc.encounter_type == "trash");
+        if !is_dungeon {
+            if boss_count_in_run >= 2 {
+                runs.push(current_run.clone());
+            }
+            current_run.clear();
+            boss_count_in_run = 0;
+            last_boss_idx = None;
+            continue;
+        }
+
+        if enc.encounter_type == "trash" {
+            // Include trash in the current run if we have at least one boss already
+            if !current_run.is_empty() {
+                current_run.push(i);
+            }
+            continue;
+        }
+
+        // It's a boss encounter
+        if current_run.is_empty() {
+            // Look backwards for a preceding trash encounter to include
+            if i > 0 && encounters[i - 1].encounter_type == "trash" && encounters[i - 1].group_size <= 5 {
+                current_run.push(i - 1);
+            }
+            current_run.push(i);
+            boss_count_in_run = 1;
+            last_boss_idx = Some(i);
+        } else {
+            let prev_boss = &encounters[last_boss_idx.unwrap()];
+            let gap_secs = parse_timestamp_to_secs(&enc.start_time) - parse_timestamp_to_secs(&prev_boss.end_time);
+            let same_zone = zone_for(enc, &zc) == zone_for(prev_boss, &zc);
+            let same_diff = enc.difficulty_id == prev_boss.difficulty_id;
+            if same_zone && same_diff && gap_secs < 900.0 {
+                current_run.push(i);
+                boss_count_in_run += 1;
+                last_boss_idx = Some(i);
+            } else {
+                if boss_count_in_run >= 2 {
+                    runs.push(current_run.clone());
+                }
+                current_run = vec![i];
+                boss_count_in_run = 1;
+                last_boss_idx = Some(i);
+            }
+        }
+    }
+    if boss_count_in_run >= 2 {
+        runs.push(current_run);
+    }
+
+    if runs.is_empty() {
+        return encounters;
+    }
+
+    // Build a set of all indices that belong to a run
+    let mut run_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for run in &runs {
+        for &idx in run {
+            run_indices.insert(idx);
+        }
+    }
+
+    // Build result: replace each run with a single compound encounter
+    let mut result: Vec<EncounterSummary> = Vec::new();
+    let mut next_run = 0;
+
+    let mut i = 0;
+    while i < encounters.len() {
+        if run_indices.contains(&i) && next_run < runs.len() && runs[next_run].contains(&i) {
+            let run = &runs[next_run];
+            let run_all: Vec<&EncounterSummary> = run.iter().map(|&idx| &encounters[idx]).collect();
+            let run_bosses: Vec<&EncounterSummary> = run_all.iter().filter(|e| e.encounter_type == "boss").copied().collect();
+
+            let zone_name = zone_for(run_bosses[0], &zc);
+            let diff_name = run_bosses[0].difficulty_name.clone();
+            let diff_id = run_bosses[0].difficulty_id;
+            let group_size = run_bosses[0].group_size;
+            let start_time = run_all.first().unwrap().start_time.clone();
+            let end_time = run_all.last().unwrap().end_time.clone();
+            let all_success = run_bosses.iter().all(|e| e.success);
+
+            // Build boss_encounters from boss encounters only
+            let boss_encounters: Vec<BossEncounter> = run_bosses.iter().map(|e| BossEncounter {
+                name: e.name.clone(),
+                encounter_id: e.encounter_id,
+                success: e.success,
+                duration_secs: e.duration_secs,
+                start_time: e.start_time.clone(),
+                end_time: e.end_time.clone(),
+            }).collect();
+
+            // Build segments from all encounters (boss + trash) in order
+            let mut segments: Vec<KeySegment> = Vec::new();
+            let mut total_duration = 0.0f64;
+            let mut trash_count = 0;
+
+            for &enc in &run_all {
+                total_duration += enc.duration_secs;
+                if enc.encounter_type == "trash" {
+                    trash_count += 1;
+                    segments.push(KeySegment {
+                        segment_type: "trash".to_string(),
+                        name: format!("Trash {}", trash_count),
+                        index: segments.len(),
+                        duration_secs: enc.duration_secs,
+                        start_time: enc.start_time.clone(),
+                        end_time: enc.end_time.clone(),
+                        players: enc.players.clone(),
+                        deaths: enc.deaths.clone(),
+                        buff_uptimes: enc.buff_uptimes.clone(),
+                        enemy_breakdowns: enc.enemy_breakdowns.clone(),
+                        pulls: Vec::new(),
+                    });
+                } else {
+                    segments.push(KeySegment {
+                        segment_type: "boss".to_string(),
+                        name: enc.name.clone(),
+                        index: segments.len(),
+                        duration_secs: enc.duration_secs,
+                        start_time: enc.start_time.clone(),
+                        end_time: enc.end_time.clone(),
+                        players: enc.players.clone(),
+                        deaths: enc.deaths.clone(),
+                        buff_uptimes: enc.buff_uptimes.clone(),
+                        enemy_breakdowns: enc.enemy_breakdowns.clone(),
+                        pulls: Vec::new(),
+                    });
+                }
+            }
+
+            // Merge player summaries across ALL encounters (boss + trash)
+            let all_player_sources: Vec<Vec<PlayerSummary>> = run_all.iter().map(|e| e.players.clone()).collect();
+            let merged_players = merge_player_summaries(&all_player_sources, total_duration);
+
+            // Merge deaths
+            let total_deaths: Vec<DeathEvent> = run_all.iter().flat_map(|e| e.deaths.clone()).collect();
+
+            // Merge buff uptimes
+            let mut merged_buffs: HashMap<String, Vec<BuffUptime>> = HashMap::new();
+            for e in &run_all {
+                for (guid, uptimes) in &e.buff_uptimes {
+                    merged_buffs.entry(guid.clone()).or_default().extend(uptimes.clone());
+                }
+            }
+
+            // Merge enemy breakdowns
+            let merged_enemies: Vec<EnemyBreakdown> = run_all.iter().flat_map(|e| e.enemy_breakdowns.clone()).collect();
+
+            let compound = EncounterSummary {
+                index: result.len(),
+                encounter_id: run_bosses[0].encounter_id,
+                name: zone_name.clone(),
+                difficulty_id: diff_id,
+                difficulty_name: diff_name,
+                group_size,
+                success: all_success,
+                duration_secs: total_duration,
+                start_time,
+                end_time,
+                key_level: None,
+                affixes: Vec::new(),
+                encounter_type: "dungeon".to_string(),
+                boss_encounters,
+                players: merged_players,
+                deaths: total_deaths,
+                segments,
+                buff_uptimes: merged_buffs,
+                enemy_breakdowns: merged_enemies,
+                boss_hp_pct: None,
+                boss_max_hp: None,
+                phases: Vec::new(),
+                time_bucketed_player_damage: HashMap::new(),
+                boss_hp_timeline: Vec::new(),
+                replay_timeline: Vec::new(),
+                boss_positions: Vec::new(),
+                raw_ability_events: Vec::new(),
+            };
+
+            result.push(compound);
+            // Skip past all encounters in this run
+            i = *run.last().unwrap() + 1;
+            next_run += 1;
+        } else if run_indices.contains(&i) {
+            // This encounter is part of a run but we haven't reached its start yet — skip
+            i += 1;
+        } else {
+            let mut enc = encounters[i].clone();
+            enc.index = result.len();
+            result.push(enc);
+            i += 1;
+        }
+    }
+
+    result
+}
+
+/// Merge player summaries from multiple encounters into one, re-computing DPS/HPS.
+fn merge_player_summaries(sources: &[Vec<PlayerSummary>], total_duration: f64) -> Vec<PlayerSummary> {
+    let mut map: HashMap<String, PlayerSummary> = HashMap::new();
+
+    for players in sources {
+        for p in players {
+            let entry = map.entry(p.guid.clone()).or_insert_with(|| PlayerSummary {
+                guid: p.guid.clone(),
+                name: p.name.clone(),
+                class_name: p.class_name.clone(),
+                spec_name: p.spec_name.clone(),
+                role: p.role.clone(),
+                damage_done: 0,
+                healing_done: 0,
+                damage_taken: 0,
+                deaths: 0,
+                dps: 0.0,
+                hps: 0.0,
+                abilities: Vec::new(),
+                heal_abilities: Vec::new(),
+                damage_taken_abilities: Vec::new(),
+            });
+            entry.damage_done += p.damage_done;
+            entry.healing_done += p.healing_done;
+            entry.damage_taken += p.damage_taken;
+            entry.deaths += p.deaths;
+            // Merge abilities
+            merge_abilities(&mut entry.abilities, &p.abilities);
+            merge_abilities(&mut entry.heal_abilities, &p.heal_abilities);
+            merge_abilities(&mut entry.damage_taken_abilities, &p.damage_taken_abilities);
+        }
+    }
+
+    let dur = if total_duration > 0.0 { total_duration } else { 1.0 };
+    let mut result: Vec<PlayerSummary> = map.into_values().map(|mut p| {
+        p.dps = p.damage_done as f64 / dur;
+        p.hps = p.healing_done as f64 / dur;
+        p
+    }).collect();
+    result.sort_by(|a, b| b.damage_done.cmp(&a.damage_done));
+    result
+}
+
+/// Merge ability breakdowns by spell_id, accumulating totals.
+fn merge_abilities(target: &mut Vec<AbilityBreakdown>, source: &[AbilityBreakdown]) {
+    for sa in source {
+        if let Some(existing) = target.iter_mut().find(|a| a.spell_id == sa.spell_id) {
+            existing.total_amount += sa.total_amount;
+            existing.hit_count += sa.hit_count;
+            // Merge targets
+            for st in &sa.targets {
+                if let Some(et) = existing.targets.iter_mut().find(|t| t.target_name == st.target_name) {
+                    et.amount += st.amount;
+                } else {
+                    existing.targets.push(st.clone());
+                }
+            }
+        } else {
+            target.push(sa.clone());
+        }
+    }
 }
 
 /// Tracks damage/healing/deaths during an encounter or key
@@ -474,6 +862,8 @@ struct EventTracker {
     aura_spell_names: HashMap<u64, String>,
     /// Aura sources: (player_guid, spell_id) -> source_name
     aura_sources: HashMap<(String, u64), String>,
+    /// Aura types: spell_id -> "BUFF" or "DEBUFF"
+    aura_types: HashMap<u64, String>,
     /// Kill counts per target name
     kill_counts: HashMap<String, u32>,
     /// Creature type from GUID: target_name -> guid_type ("Creature", "Vehicle", "Pet", etc.)
@@ -546,6 +936,7 @@ impl EventTracker {
             active_aura_stacks: HashMap::new(),
             aura_spell_names: HashMap::new(),
             aura_sources: HashMap::new(),
+            aura_types: HashMap::new(),
             kill_counts: HashMap::new(),
             creature_types: HashMap::new(),
             last_creature_hp: HashMap::new(),
@@ -949,6 +1340,8 @@ impl EventTracker {
                     spell_name,
                     source_name: self.aura_sources.get(&(guid.clone(), *spell_id))
                         .cloned().unwrap_or_default(),
+                    aura_type: self.aura_types.get(spell_id)
+                        .cloned().unwrap_or_else(|| "BUFF".to_string()),
                     uptime_secs: total_uptime,
                     uptime_pct,
                     avg_stacks,
@@ -1738,6 +2131,13 @@ fn process_combat_event(
                 if spell_id > 0 {
                     tracker.aura_spell_names.insert(spell_id, spell_name.clone());
                     tracker.aura_sources.insert((dest_guid.clone(), spell_id), source_name.clone());
+                    // Track aura type (BUFF or DEBUFF) from field 12
+                    if let Some(aura_type_str) = fields.get(12) {
+                        let at = unquote(aura_type_str);
+                        if at == "BUFF" || at == "DEBUFF" {
+                            tracker.aura_types.insert(spell_id, at);
+                        }
+                    }
                     let stacks = tracker.active_aura_stacks
                         .entry(dest_guid.clone()).or_default()
                         .entry(spell_id).or_insert(0);
